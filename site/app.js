@@ -395,12 +395,54 @@ function screenProduct() {
   var hist = "";
   if (d.history.length > 1) {
     var hs = d.history, W = 600, H = 220;
+    // נקודה שנבנתה מארבעה סניפים אינה חציון ארצי, והיא נראית על הגרף בדיוק
+    // כמו נקודה שנבנתה מאלפיים. הסף הזה מפריד ביניהן ומסמן את הדלילות.
+    var MIN_STORES = 10;
+    var sparse = hs.map(function (r) { return (r.stores || 0) < MIN_STORES; });
+    var nSparse = 0, sparseFrom = null, sparseTo = null, sparseMax = 0;
+    hs.forEach(function (r, i) {
+      if (!sparse[i]) return;
+      nSparse++;
+      if (sparseFrom === null) sparseFrom = r.date;
+      sparseTo = r.date;
+      sparseMax = Math.max(sparseMax, r.stores || 0);
+    });
     var vals = hs.map(function (r) { return r.median; });
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     var pad = (hi - lo) * 0.15 || 1; lo -= pad; hi += pad;
     var X = function (i) { return 40 + i / (hs.length - 1) * 550; };
     var Y = function (v) { return 20 + (1 - (v - lo) / (hi - lo)) * 150; };
-    var pts = hs.map(function (r, i) { return X(i).toFixed(1) + "," + Y(r.median).toFixed(1); }).join(" ");
+    // הקו מצויר במקטעים. כל מקטע שנוגע בנקודה דלילה מצויר מקווקו וחיוור,
+    // כדי שלא ייקרא כמגמה ארצית.
+    var pt = function (i) { return X(i).toFixed(1) + "," + Y(hs[i].median).toFixed(1); };
+    var runs = [];
+    hs.forEach(function (r, i) {
+      var last = runs[runs.length - 1];
+      if (!last || last.sparse !== sparse[i]) runs.push({ sparse: sparse[i], from: i, to: i });
+      else last.to = i;
+    });
+    var pts = "";
+    runs.forEach(function (run) {
+      var a = run.from, b = run.to;
+      if (run.sparse) {                      // המחברים משני הצדדים שייכים לדליל
+        if (a > 0) a -= 1;
+        if (b < hs.length - 1) b += 1;
+      }
+      var seg = [];
+      for (var i = a; i <= b; i++) seg.push(pt(i));
+      if (seg.length > 1) {
+        pts += '<polyline points="' + seg.join(" ") + '" fill="none" ' +
+          (run.sparse
+            ? 'stroke="var(--purple)" stroke-opacity=".35" stroke-dasharray="6 5" style="stroke-width:2.5;stroke-linecap:round"'
+            : 'stroke="var(--purple)" style="stroke-width:4;stroke-linecap:round;stroke-linejoin:round"') + "/>";
+      }
+      // נקודה בודדת בין שכנים מסוג אחר לא תיראה כקו, ולכן מסומנת בעיגול
+      if (run.from === run.to) {
+        pts += '<circle cx="' + X(run.from).toFixed(1) + '" cy="' + Y(hs[run.from].median).toFixed(1) +
+          '" r="3.5" fill="' + (run.sparse ? "none" : "var(--purple)") +
+          '" stroke="var(--purple)" stroke-width="2" stroke-opacity="' + (run.sparse ? ".45" : "1") + '"/>';
+      }
+    });
     var labels = "";
     var hIdx = [0, Math.floor(hs.length / 2), hs.length - 1];
     hIdx.forEach(function (i, k) {
@@ -408,18 +450,29 @@ function screenProduct() {
       labels += '<div style="position:absolute;left:' + (X(i) / W * 100) + '%;top:86%;transform:translateX(' + shift + ');font-size:11px;font-weight:700;white-space:nowrap">' + dateHe(hs[i].date) + "</div>";
     });
     hist = '<section class="card" style="display:flex;flex-direction:column;gap:14px">' +
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h3 class="h3">היסטוריית מחיר (חציון ארצי)</h3><span class="small muted">' + hs.length + " ימים</span></div>" +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h3 class="h3">היסטוריית מחיר' + (nSparse ? "" : " (חציון ארצי)") + '</h3><span class="small muted">' + hs.length + " ימים</span></div>" +
       '<div style="position:relative;direction:ltr">' +
       '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' +
         '<line x1="40" y1="20" x2="590" y2="20" stroke="var(--div2)" stroke-dasharray="4 4"/>' +
         '<line x1="40" y1="95" x2="590" y2="95" stroke="var(--div2)" stroke-dasharray="4 4"/>' +
         '<line x1="40" y1="170" x2="590" y2="170" stroke="var(--ink)" stroke-width="2"/>' +
-        '<polyline points="' + pts + '" fill="none" stroke="var(--purple)" style="stroke-width:4;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2400;animation:draw 1.6s ease-out both"/>' +
+        pts +
       "</svg>" +
       '<div style="position:absolute;right:calc(100% - 6%);top:4%;font-size:11px;font-weight:700" class="muted tnum">' + nis(hi) + "</div>" +
       '<div style="position:absolute;right:calc(100% - 6%);top:74%;font-size:11px;font-weight:700" class="muted tnum">' + nis(lo) + "</div>" +
       labels + "</div>" +
-      '<div class="note">החציון מחושב מכל הסניפים שדיווחו על המוצר באותו יום. ימים שבהם הרשתות לא פרסמו קובץ אינם מופיעים.</div>' +
+      (nSparse
+        ? '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:700">' +
+            '<span style="display:inline-flex;align-items:center;gap:6px"><svg width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-opacity=".35" stroke-width="2.5" stroke-dasharray="6 5"/></svg>' +
+            'פחות מ־' + MIN_STORES + ' סניפים</span>' +
+            '<span style="display:inline-flex;align-items:center;gap:6px"><svg width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-width="4"/></svg>כיסוי רחב</span></div>'
+        : "") +
+      '<div class="note">החציון מחושב מכל הסניפים שדיווחו על המוצר באותו יום. ימים שבהם הרשתות לא פרסמו קובץ אינם מופיעים.' +
+      (nSparse
+        ? " " + nSparse + " מתוך " + hs.length + " הנקודות מבוססות על " + sparseMax +
+          " סניפים לכל היותר, בין " + dateHe(sparseFrom) + " ל־" + dateHe(sparseTo) +
+          ", והן מסומנות בקו מקווקו. הרשתות אינן שומרות ארכיון, ולכן מהתקופה הזו נשמר רק מה שכבר היה בידינו."
+        : "") + "</div>" +
       "</section>";
   } else {
     // אין גרף כשהמוצר לא נמצא במעקב, ולא בגלל שההיסטוריה "עוד תיצבר"
@@ -602,8 +655,22 @@ function screenMarket() {
     var pad = (hi - lo) * .18 || .5; lo -= pad; hi += pad;
     var X = function (i) { return 18 + i / (view.length - 1) * (W - 90); };
     var Y = function (v) { return 18 + (1 - (v - lo) / (hi - lo)) * (H - 46); };
-    var line = view.map(function (r, i) { return (i ? "L" : "M") + X(i).toFixed(1) + " " + Y(r.median).toFixed(1); }).join(" ");
-    var area = line + " L" + X(view.length - 1).toFixed(1) + " " + (H - 12) + " L" + X(0).toFixed(1) + " " + (H - 12) + " Z";
+    // אותו כלל כמו בעמוד המוצר: יום שדיווחו בו פחות מעשרה סניפים אינו
+    // מדד ארצי, ולכן הוא מצויר מקווקו ובלי המילוי מתחתיו.
+    var MIN_STORES = 10;
+    var vSparse = view.map(function (r) { return (r.stores || 0) < MIN_STORES; });
+    var nvSparse = vSparse.filter(Boolean).length;
+    var vRuns = [];
+    view.forEach(function (r, i) {
+      var last = vRuns[vRuns.length - 1];
+      if (!last || last.sparse !== vSparse[i]) vRuns.push({ sparse: vSparse[i], from: i, to: i });
+      else last.to = i;
+    });
+    var seg = function (a, b) {
+      var out = "";
+      for (var i = a; i <= b; i++) out += (i === a ? "M" : "L") + X(i).toFixed(1) + " " + Y(view[i].median).toFixed(1) + " ";
+      return out.trim();
+    };
     var col = sel.change == null ? "var(--yellow)" : (sel.change < 0 ? "var(--green)" : "var(--red)");
     var med = sel.today ? sel.today.median : null;
     var medY = med != null && med >= lo && med <= hi ? Y(med) : null;
@@ -624,11 +691,31 @@ function screenMarket() {
       '<line x1="0" y1="' + (H / 2) + '" x2="' + (W - 60) + '" y2="' + (H / 2) + '" stroke="#2b2d36" stroke-dasharray="3 6"/>' +
       '<line x1="0" y1="' + (3 * H / 4) + '" x2="' + (W - 60) + '" y2="' + (3 * H / 4) + '" stroke="#2b2d36" stroke-dasharray="3 6"/>' +
       (medY ? '<line x1="0" y1="' + medY.toFixed(1) + '" x2="' + (W - 60) + '" y2="' + medY.toFixed(1) + '" stroke="var(--yellow)" stroke-width="1.5" stroke-dasharray="2 6"/>' : "") +
-      '<path d="' + area + '" fill="url(#af)"/>' +
-      '<path d="' + line + '" fill="none" stroke="' + col + '" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" style="stroke-dasharray:2400;animation:draw 1.4s ease-out both"/>' +
+      vRuns.map(function (run) {
+        var a = run.from, b = run.to;
+        if (run.sparse) { if (a > 0) a -= 1; if (b < view.length - 1) b += 1; }
+        if (a === b) {
+          return '<circle cx="' + X(a).toFixed(1) + '" cy="' + Y(view[a].median).toFixed(1) +
+            '" r="4" fill="' + (run.sparse ? "none" : col) + '" stroke="' + col +
+            '" stroke-width="2.5" stroke-opacity="' + (run.sparse ? ".45" : "1") + '"/>';
+        }
+        var d0 = seg(a, b);
+        return (run.sparse ? "" :
+                 '<path d="' + d0 + " L" + X(b).toFixed(1) + " " + (H - 12) +
+                 " L" + X(a).toFixed(1) + " " + (H - 12) + ' Z" fill="url(#af)"/>') +
+          '<path d="' + d0 + '" fill="none" stroke="' + col + '" ' +
+          (run.sparse
+            ? 'stroke-opacity=".4" stroke-dasharray="7 6" stroke-width="2.5" stroke-linecap="round"'
+            : 'stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"') + "/>";
+      }).join("") +
       '<circle cx="' + X(view.length - 1).toFixed(1) + '" cy="' + Y(view[view.length - 1].median).toFixed(1) + '" r="7" fill="' + col + '" stroke="var(--ink)" stroke-width="3"/>' +
       "</svg>" +
-      '<div style="position:absolute;left:18px;right:18px;top:18px;bottom:10px;pointer-events:none">' + grid + xl + "</div></div>";
+      '<div style="position:absolute;left:18px;right:18px;top:18px;bottom:10px;pointer-events:none">' + grid + xl + "</div>" +
+      (nvSparse
+        ? '<div style="margin-top:10px;font-size:11px;color:var(--muted);font-weight:700;line-height:1.5">' +
+          "הקו המקווקו: " + nvSparse + " מתוך " + view.length + " הימים בטווח הזה מבוססים על פחות מ־" +
+          MIN_STORES + " סניפים, ואינם מדד ארצי." + "</div>"
+        : "") + "</div>";
   }
 
   var depth = (sel.depth || []).map(function (dd, i) {
