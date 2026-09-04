@@ -67,9 +67,21 @@ il-prices update
 |---|---|
 | `app/server.py` | השרת וה־API. ללא ספריות חיצוניות |
 | `app/build_index.py` | בונה טבלאות עזר כדי שהאתר יגיב מיד |
-| `app/static/` | האתר עצמו: `index.html`, `app.js`, `styles.css` |
-| `app/static/cities_geo.json` | קואורדינטות יישובים למפה |
+| `site/` | האתר עצמו: `index.html`, `app.js`, `data.js`, `styles.css` |
+| `site/cities_geo.json` | קואורדינטות יישובים למפה |
+| `cloud/` | בניית מסד לענן והעלאה ל-R2. ראו [cloud/README.md](../cloud/README.md) |
 | `../prices.db` | הנתונים. נבנה על ידי `il-prices update` |
+
+## אותו אתר, שתי דרכי הרצה
+
+התיקייה `site/` היא הממשק היחיד. `site/data.js` יודע לקרוא נתונים משני מקורות:
+
+- **מקומי**: `מחירון.bat` מפעיל את שרת הפייתון, שמגיש את `site/` ומייצר `config.js`
+  שמורה לקרוא ל-`/api`. כל הנתונים זמינים, כולל היסטוריה.
+- **בענן**: אותם קבצים בדיוק מועלים ל-Cloudflare Pages, ושם `config.js` מורה
+  לקרוא את המסד ישירות מ-R2. ראו [cloud/README.md](../cloud/README.md).
+
+כך אין שני עותקים של הממשק שצריך לתחזק.
 
 ## פתרון תקלות
 

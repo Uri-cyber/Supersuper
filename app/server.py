@@ -20,7 +20,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
+# ממשק אחד משותף לשרת המקומי ולאתר בענן. ההבדל היחיד הוא config.js,
+# שהשרת מייצר בעצמו כדי להורות ל-data.js לקרוא ל-API במקום למסד בענן.
+STATIC_DIR = os.path.join(os.path.dirname(BASE_DIR), "site")
+LOCAL_CONFIG = (
+    "/* config for the local server: data comes from /api, not the cloud */\n"
+    'window.MEHIRON_CONFIG = { mode: \"server\" };\n'
+)
 DB_PATH = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 CITIES_PATH = os.path.join(os.path.dirname(BASE_DIR), "cities.json")
 
@@ -68,8 +74,22 @@ def heat_color(idx, total):
     return HEAT[int(round(pos))]
 
 
+_latest_cache = {"at": 0, "date": None}
+
+
+def latest_data_date():
+    """התאריך האחרון שיש בנתונים. נמדד ממנו חלון הטריות, ולא מהיום."""
+    now = dt.datetime.now().timestamp()
+    if _latest_cache["date"] and now - _latest_cache["at"] < 300:
+        return _latest_cache["date"]
+    row = q1("SELECT value v FROM app_meta WHERE key = 'latest_date'")
+    d = (row["v"] if row else None) or dt.date.today().isoformat()
+    _latest_cache.update(at=now, date=d)
+    return d
+
+
 def fresh_cutoff():
-    return (dt.date.today() - dt.timedelta(days=FRESH_DAYS)).isoformat()
+    return (dt.date.fromisoformat(latest_data_date()) - dt.timedelta(days=FRESH_DAYS)).isoformat()
 
 
 def load_cities():
@@ -835,6 +855,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 500)
 
     def _static(self, path):
+        if path == "/config.js":
+            self._send(200, LOCAL_CONFIG, "application/javascript; charset=utf-8")
+            return
         if path in ("/", ""):
             path = "/index.html"
         target = os.path.normpath(os.path.join(STATIC_DIR, path.lstrip("/")))

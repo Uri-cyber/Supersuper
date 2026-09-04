@@ -62,15 +62,7 @@ function dateHe(d) {
   var p = String(d).split("-");
   return p.length === 3 ? p[2] + "." + p[1] + "." + p[0] : d;
 }
-function api(path, opts) {
-  return fetch(path, opts).then(function (r) {
-    if (!r.ok) throw new Error("שגיאת שרת " + r.status);
-    return r.json();
-  });
-}
-function post(path, body) {
-  return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
+var API = null;   // נקבע ב-boot לפי config.js
 function debounce(fn, ms) {
   var t; return function () { var a = arguments, c = this; clearTimeout(t); t = setTimeout(function () { fn.apply(c, a); }, ms); };
 }
@@ -888,16 +880,13 @@ function openProduct(barcode) {
 }
 
 function loadProduct() {
-  var u = "/api/product?barcode=" + encodeURIComponent(S.productBarcode) +
-    (S.city ? "&city=" + encodeURIComponent(S.city) : "") +
-    (S.chains ? "&chains=" + encodeURIComponent(S.chains.join("|")) : "") +
-    (S.includeOld ? "&include_old=1" : "");
-  api(u).then(function (d) { S.product = d; render(); })
-        .catch(function (e) { S.product = { error: e.message }; render(); });
+  API.product({ barcode: S.productBarcode, city: S.city, chains: S.chains, includeOld: S.includeOld })
+    .then(function (d) { S.product = d; render(); })
+    .catch(function (e) { S.product = { error: e.message }; render(); });
 }
 
 function loadMarket() {
-  api("/api/market" + (S.marketBarcode ? "?barcode=" + encodeURIComponent(S.marketBarcode) : ""))
+  API.market(S.marketBarcode)
     .then(function (d) { S.market = d; if (d.selected) S.marketBarcode = d.selected.barcode; render(); })
     .catch(function (e) { toast(e.message); });
 }
@@ -905,7 +894,7 @@ function loadMarket() {
 function loadCart2() {
   if (!S.cart.length) { S.cartData = null; return; }
   S.cartData = null;
-  post("/api/basket", { items: S.cart.map(function (c) { return { barcode: c.barcode, qty: c.qty }; }), city: S.city })
+  API.basket(S.cart.map(function (c) { return { barcode: c.barcode, qty: c.qty }; }), S.city)
     .then(function (d) { S.cartData = d; render(); })
     .catch(function (e) { toast(e.message); });
 }
@@ -922,7 +911,7 @@ function addToCart(barcode, name, tint) {
 var doSuggest = debounce(function () {
   var v = S.query.trim();
   if (!v) { S.suggestions = []; paintSuggest(); return; }
-  api("/api/suggest?limit=6&q=" + encodeURIComponent(v)).then(function (d) {
+  API.search(v, 6).then(function (d) {
     S.suggestions = d.results; if (S.focused) paintSuggest();
   }).catch(function () {});
 }, 220);
@@ -930,7 +919,7 @@ var doSuggest = debounce(function () {
 function runSearch() {
   var v = S.query.trim();
   if (!v) return;
-  api("/api/search?limit=40&q=" + encodeURIComponent(v)).then(function (d) {
+  API.search(v, 40).then(function (d) {
     if (!d.results.length) { toast('לא נמצאו מוצרים ל־"' + v + '"'); return; }
     if (d.results.length === 1) { openProduct(d.results[0].barcode); return; }
     S.suggestions = d.results; S.focused = true; paintSuggest();
@@ -943,7 +932,7 @@ function runScan() {
   S.scanText = txt;
   S.scanPhase = "scanning";
   render();
-  post("/api/receipt", { text: txt, city: S.city })
+  API.receipt(txt, S.city)
     .then(function (d) { S.scanResult = d; S.scanPhase = "done"; window.scrollTo(0, 0); render(); })
     .catch(function (e) { S.scanPhase = "idle"; toast(e.message); render(); });
 }
@@ -1054,23 +1043,36 @@ document.addEventListener("mousemove", function (ev) {
 });
 
 // ------------------------------------------------------------------ boot
-loadCart();
-Promise.all([
-  api("/api/home"),
-  api("/api/meta"),
-  fetch("/cities_geo.json").then(function (r) { return r.json(); }).catch(function () { return {}; })
-]).then(function (res) {
-  S.home = res[0];
-  S.meta = res[1].meta;
-  S.cities = res[1].cities;
-  S.geo = res[2] || {};
-  var hash = (location.hash || "").replace("#", "");
-  if (["home", "market", "scan", "cart"].indexOf(hash) >= 0) S.screen = hash;
-  if (S.screen === "market") loadMarket();
-  if (S.screen === "cart") loadCart2();
-  render();
-}).catch(function (e) {
+function boot(msg) {
   document.getElementById("app").innerHTML =
-    '<div class="boot">לא הצלחנו לטעון את הנתונים.<br><span style="font-size:13px">' + esc(e.message) + "</span></div>";
-});
+    '<div class="boot"><span class="spinner"></span> ' + esc(msg) + "</div>";
+}
+
+loadCart();
+API = window.MehironData();
+boot("מתחיל…");
+API.init(boot)
+  .then(function () {
+    boot("טוען מחירים…");
+    return Promise.all([
+      API.home(),
+      API.meta(),
+      fetch("cities_geo.json").then(function (r) { return r.json(); }).catch(function () { return {}; })
+    ]);
+  })
+  .then(function (res) {
+    S.home = res[0];
+    S.meta = res[1].meta;
+    S.cities = res[1].cities;
+    S.geo = res[2] || {};
+    var hash = (location.hash || "").replace("#", "");
+    if (["home", "market", "scan", "cart"].indexOf(hash) >= 0) S.screen = hash;
+    if (S.screen === "market") loadMarket();
+    if (S.screen === "cart") loadCart2();
+    render();
+  })
+  .catch(function (e) {
+    document.getElementById("app").innerHTML =
+      '<div class="boot">לא הצלחנו לטעון את הנתונים.<br><span style="font-size:13px">' + esc(e && e.message ? e.message : e) + "</span></div>";
+  });
 })();

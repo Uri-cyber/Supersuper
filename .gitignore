@@ -18,3 +18,12 @@ Thumbs.db
 b.json
 m.json
 home.json
+
+# מסד הענן ופרטי הגישה אליו
+cloud/*.db
+cloud/*.db-*
+cloud/r2_config.json
+cloud/.upload_state.json
+site/mehiron.db
+site/_range_server.py
+site/*.log

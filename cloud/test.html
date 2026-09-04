@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>הוכחת היתכנות · מחירון מ־R2</title>
+<style>
+:root{--ink:#14151a;--bg:#f6f4ec;--green:#1fb85a;--red:#ff4d4d;--yellow:#ffcb3d;--muted:#7a7d86}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Heebo,system-ui,sans-serif;padding:20px;font-size:15px}
+h1{font-size:26px;font-weight:900;margin:0 0 6px}
+.sub{color:var(--muted);font-weight:600;margin-bottom:18px}
+.card{background:#fff;border:3px solid var(--ink);border-radius:16px;padding:16px;margin-bottom:14px}
+button{border:3px solid var(--ink);background:var(--green);color:var(--ink);border-radius:12px;padding:10px 18px;font-size:15px;font-weight:800;cursor:pointer;font-family:inherit}
+button:disabled{background:#ddd;cursor:default}
+select{border:2px solid var(--ink);border-radius:10px;padding:8px 10px;font-weight:700;font-family:inherit}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:right;border-bottom:3px solid var(--ink);padding:6px;font-size:12px;color:var(--muted)}
+td{padding:6px;border-bottom:1px solid #eee}
+.num{font-variant-numeric:tabular-nums;font-family:ui-monospace,monospace;direction:ltr;unicode-bidi:isolate}
+.ok{color:#0f9d4a;font-weight:800}
+.bad{color:var(--red);font-weight:800}
+.warn{color:#a07800;font-weight:800}
+pre{background:#14151a;color:#c9ccd6;padding:12px;border-radius:10px;overflow:auto;font-size:12px;max-height:260px;direction:ltr;text-align:left}
+.pill{display:inline-block;background:var(--ink);color:#fff;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:800}
+</style>
+</head>
+<body>
+<h1>הוכחת היתכנות: קריאת המסד מהענן</h1>
+<div class="sub">הדפדפן קורא את קובץ ה־SQLite בחתיכות דרך בקשות HTTP Range, בדיוק כמו שיקרה מול Cloudflare R2. השרת המקומי סופר כל בקשה וכל בית.</div>
+
+<div class="card">
+  <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+    <label>מסד:
+      <select id="db">
+        <option value="mehiron-4096.db">דף 4096 בתים</option>
+        <option value="mehiron-1024.db">דף 1024 בתים</option>
+      </select>
+    </label>
+    <label>גודל חתיכה:
+      <select id="chunk">
+        <option value="4096">4 KB</option>
+        <option value="8192" selected>8 KB</option>
+        <option value="16384">16 KB</option>
+        <option value="65536">64 KB</option>
+      </select>
+    </label>
+    <button id="run">הרץ את כל הבדיקות</button>
+    <span id="status" class="pill">מוכן</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2 style="font-size:18px;margin:0 0 10px">תוצאות</h2>
+  <table>
+    <thead><tr><th>בדיקה</th><th>זמן</th><th>בקשות</th><th>הורד</th><th>שורות</th><th>נכונות</th></tr></thead>
+    <tbody id="rows"><tr><td colspan="6" style="color:var(--muted)">לחצו "הרץ"</td></tr></tbody>
+  </table>
+</div>
+
+<div class="card">
+  <h2 style="font-size:18px;margin:0 0 10px">פלט</h2>
+  <pre id="log">ממתין…</pre>
+</div>
+
+<script src="/vendor/index.js"></script>
+<script>
+// UMD: הספרייה מציבה את createDbWorker על window. הקבצים מוגשים מקומית
+// כי דפדפן חוסם יצירת Worker מכתובת ממקור אחר.
+const createDbWorker = window.createDbWorker;
+const $ = id => document.getElementById(id);
+const logEl = $("log");
+let lines = [];
+function log(s){ lines.push(s); logEl.textContent = lines.join("\n"); logEl.scrollTop = logEl.scrollHeight; }
+function kb(n){ return n < 1024 ? n + " B" : n < 1048576 ? (n/1024).toFixed(0) + " KB" : (n/1048576).toFixed(2) + " MB"; }
+
+async function stats(){ return (await fetch("/__stats")).json(); }
+async function resetStats(){ await fetch("/__stats/reset"); }
+
+// אותן שאילתות בדיוק שהאפליקציה מריצה ב-app/server.py
+const BARCODE = "7290004131074";           // חלב תנובה 3% - מוצר עם הרבה סניפים
+const BASKET  = ["7290004131074","7290000042503","7290004127077","7290001201589","7290002868996"];
+const FRESH   = "2026-08-27";
+
+const TESTS = [
+  { name: "טעינה ראשונית (meta)",
+    sql: `SELECT key, value FROM app_meta`, args: [] },
+  { name: "סיכום רשתות",
+    sql: `SELECT chain, stores, rows, date_min, date_max, has_store_file FROM chain_stats ORDER BY chain`, args: [] },
+  { name: "רשימת ערים",
+    sql: `SELECT city, stores FROM city_stats`, args: [] },
+  { name: 'חיפוש "חלב תנובה" (FTS5)',
+    sql: `SELECT ps.barcode, ps.name, ps.min_price, ps.n_stores
+          FROM product_fts f JOIN product_stats ps ON ps.barcode = f.barcode
+          WHERE product_fts MATCH ? ORDER BY ps.n_stores DESC LIMIT 6`,
+    args: ['"חלב"* "תנובה"*'] },
+  { name: "עמוד מוצר (מחירים + סניפים)",
+    sql: `SELECT pr.price, pr.chain, pr.store_id, pr.date, s.store_name, s.city, s.address, s.notes
+          FROM prices pr LEFT JOIN stores s ON s.chain = pr.chain AND s.store_id = pr.store_id
+          WHERE pr.barcode = ? AND pr.date >= ? ORDER BY pr.price`,
+    args: [BARCODE, FRESH] },
+  { name: "סטטיסטיקת מוצר",
+    sql: `SELECT * FROM product_stats WHERE barcode = ?`, args: [BARCODE] },
+  { name: "סל של 5 מוצרים",
+    sql: `SELECT pr.chain, pr.store_id, pr.barcode, pr.price, pr.date
+          FROM prices pr WHERE pr.barcode IN (?,?,?,?,?) AND pr.date >= ?`,
+    args: [...BASKET, FRESH] },
+  { name: "בורסה (סדרה יומית)",
+    sql: `SELECT date, median, min_price, max_price, n_stores FROM market_daily
+          WHERE barcode = ? ORDER BY date`, args: [BARCODE] },
+  { name: "מוצרים פופולריים (מסך הבית)",
+    sql: `SELECT barcode, name, min_price, max_price, gap_pct, n_stores FROM product_stats
+          WHERE name IS NOT NULL AND name <> '' AND n_stores >= 300 AND gap_pct > 0
+          ORDER BY n_stores DESC LIMIT 60`, args: [] },
+];
+
+$("run").onclick = async () => {
+  $("run").disabled = true;
+  lines = []; $("rows").innerHTML = "";
+  const dbFile = $("db").value;
+  const chunk = parseInt($("chunk").value, 10);
+
+  try {
+    const head = await fetch(dbFile, { method: "HEAD" });
+    if (!head.ok) { log("שגיאה: " + dbFile + " לא נמצא. הריצו build_cloud_db.py"); $("run").disabled = false; return; }
+    const total = parseInt(head.headers.get("Content-Length") || "0", 10);
+    log(`מסד: ${dbFile} — ${kb(total)}`);
+    log(`גודל חתיכה: ${chunk} בתים\n`);
+
+    $("status").textContent = "מאתחל…";
+    await resetStats();
+    const t0 = performance.now();
+    const worker = await createDbWorker(
+      [{ from: "inline", config: { serverMode: "full", url: location.origin + "/" + dbFile, requestChunkSize: chunk } }],
+      location.origin + "/vendor/sqlite.worker.js",
+      location.origin + "/vendor/sql-wasm.wasm"
+    );
+    const initStats = await stats();
+    log(`אתחול: ${(performance.now()-t0).toFixed(0)} מ"ש · ${initStats.requests} בקשות · ${kb(initStats.bytes)}`);
+    log(`אחוז מהקובץ שהורד באתחול: ${(initStats.bytes/total*100).toFixed(3)}%\n`);
+
+    const results = [];
+    for (const t of TESTS) {
+      $("status").textContent = t.name;
+      await resetStats();
+      const s = performance.now();
+      let rows, err = null;
+      try { rows = await worker.db.query(t.sql, t.args); }
+      catch (e) { err = String(e); rows = []; }
+      const ms = performance.now() - s;
+      const st = await stats();
+      results.push({ name: t.name, ms, req: st.requests, bytes: st.bytes, rows: rows.length, err, sample: rows.slice(0,2) });
+      addRow(results[results.length-1]);
+      log(`${t.name}: ${ms.toFixed(0)} מ"ש · ${st.requests} בקשות · ${kb(st.bytes)} · ${rows.length} שורות${err ? " · שגיאה: "+err : ""}`);
+      if (rows.length) log("   דוגמה: " + JSON.stringify(rows[0]).slice(0,180));
+    }
+
+    // מוסרים לאימות מול פייתון
+    window.__results = results;
+    const totals = results.reduce((a,r)=>({req:a.req+r.req, bytes:a.bytes+r.bytes}), {req:0,bytes:0});
+    log(`\nסה"כ לכל הבדיקות: ${totals.req} בקשות · ${kb(totals.bytes)}`);
+    log(`(האתחול נספר בנפרד: ${initStats.requests} בקשות · ${kb(initStats.bytes)})`);
+    window.__init = initStats; window.__total = total;
+    $("status").textContent = "הסתיים";
+  } catch (e) {
+    log("כשל: " + e);
+    $("status").textContent = "כשל";
+  }
+  $("run").disabled = false;
+};
+
+function addRow(r){
+  const tr = document.createElement("tr");
+  const cls = r.err ? "bad" : (r.bytes < 400*1024 ? "ok" : r.bytes < 900*1024 ? "warn" : "bad");
+  tr.innerHTML = `<td>${r.name}</td>
+    <td class="num">${r.ms.toFixed(0)} ms</td>
+    <td class="num">${r.req}</td>
+    <td class="num ${cls}">${kb(r.bytes)}</td>
+    <td class="num">${r.rows}</td>
+    <td>${r.err ? '<span class="bad">שגיאה</span>' : '<span class="ok">רץ</span>'}</td>`;
+  $("rows").appendChild(tr);
+}
+</script>
+</body>
+</html>
