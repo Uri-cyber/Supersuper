@@ -1,0 +1,20 @@
+# נתונים - נבנים מקומית ולעולם לא נשמרים בגיט (המסד שוקל כמה ג'יגה)
+prices.db
+prices.db-*
+dumps/
+*.sqlite
+*.sqlite-*
+
+# פלט זמני
+*.log
+logging.log
+*_cookies.txt
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# קובצי עבודה
+b.json
+m.json
+home.json
