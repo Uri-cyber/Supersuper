@@ -23,8 +23,11 @@ import argparse
 import datetime as dt
 import hashlib
 import hmac
+import io
 import json
 import os
+import re
+import sqlite3
 import sys
 import time
 import urllib.error
@@ -46,6 +49,69 @@ def log(msg):
 
 def human(n):
     return f"{n / 1e9:.2f} GB" if n >= 1e9 else f"{n / 1e6:.0f} MB"
+
+
+def db_version(path):
+    """
+    מזהה גרסה לקובץ המסד: התאריך האחרון שבנתונים ועוד חתימה קצרה של הגודל
+    וזמן הבנייה. מספיק כדי ששני מסדים שונים לעולם לא יקבלו את אותו שם.
+    """
+    latest = ""
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        row = conn.execute("SELECT value FROM app_meta WHERE key='latest_date'").fetchone()
+        conn.close()
+        if row:
+            latest = str(row[0]).replace("-", "")
+    except Exception:  # noqa: BLE001
+        pass
+    stamp = f"{os.path.getsize(path)}-{int(os.path.getmtime(path))}"
+    short = hashlib.sha256(stamp.encode()).hexdigest()[:8]
+    return f"{latest}-{short}" if latest else short
+
+
+def update_site_config(url):
+    """מעדכן את site/config.js לכתובת החדשה, כדי שהאתר יצביע על הגרסה הנכונה."""
+    cfg_path = os.path.join(os.path.dirname(BASE_DIR), "site", "config.js")
+    if not os.path.exists(cfg_path):
+        log(f"לא נמצא {cfg_path}, לא עודכן.")
+        return False
+    text = io.open(cfg_path, encoding="utf-8").read()
+    new_text = re.sub(r'(\n\s*dbUrl:\s*")[^"]*(")', lambda m: m.group(1) + url + m.group(2), text, count=1)
+    if new_text == text:
+        log("לא נמצאה שורת dbUrl לעדכון.")
+        return False
+    io.open(cfg_path, "w", encoding="utf-8").write(new_text)
+    log(f"עודכן site/config.js")
+    return True
+
+
+def list_db_objects(cfg):
+    """כל קובצי המסד שנמצאים כרגע בדלי."""
+    resp = signed_request(cfg, "GET", "", params=[("list-type", 2), ("prefix", "mehiron-")])
+    body = resp.read().decode("utf-8", "replace")
+    out = []
+    for m in re.finditer(r"<Key>([^<]+)</Key>.*?<LastModified>([^<]+)</LastModified>", body, re.S):
+        out.append((m.group(1), m.group(2)))
+    return sorted(out, key=lambda x: x[1])
+
+
+def prune_old(cfg, keep_key, keep=1):
+    """
+    מוחק גרסאות ישנות, ומשאיר את החדשה ועוד אחת.
+
+    הקודמת נשארת כדי שלקוח שכבר טעון על הגרסה הישנה לא ייפול באמצע שימוש.
+    """
+    objs = [k for k, _ts in list_db_objects(cfg) if k != keep_key]
+    victims = objs[:-keep] if keep else objs
+    for k in victims:
+        try:
+            signed_request(cfg, "DELETE", k)
+            log(f"  נמחקה גרסה ישנה: {k}")
+        except Exception as exc:  # noqa: BLE001
+            log(f"  לא הצלחתי למחוק {k}: {exc}")
+    if objs[-keep:] if keep else []:
+        log(f"  נשמרה גרסה קודמת: {(objs[-keep:] if keep else [''])[0]}")
 
 
 def load_config():
@@ -205,7 +271,12 @@ def upload(cfg, path, key):
         done = {int(k): v for k, v in state["parts"].items()}
     else:
         resp = signed_request(cfg, "POST", key, params=[("uploads", "")],
-                              extra_headers={"content-type": "application/octet-stream"})
+                              extra_headers={
+                                  "content-type": "application/octet-stream",
+                                  # לכל גרסה שם משלה, ולכן מותר לשמור אותה במטמון לצמיתות.
+                                  # בלי זה הדפדפן מערבב חתיכות משתי גרסאות והמסד נראה פגום.
+                                  "cache-control": "public, max-age=31536000, immutable",
+                              })
         root = ET.fromstring(resp.read())
         ns = {"s3": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
         upload_id = root.find("s3:UploadId", ns).text if ns else root.find("UploadId").text
@@ -253,8 +324,12 @@ def upload(cfg, path, key):
 
 def main():
     ap = argparse.ArgumentParser(description="העלאת מסד מחירון ל-Cloudflare R2")
-    ap.add_argument("--file", default=os.path.join(BASE_DIR, "mehiron-4096.db"))
-    ap.add_argument("--key", default="mehiron.db")
+    ap.add_argument("--file", default=os.path.join(BASE_DIR, "mehiron-16384.db"))
+    ap.add_argument("--key", default=None,
+                    help="שם הקובץ בדלי. ברירת מחדל: שם עם גרסה, שנגזר מהנתונים")
+    ap.add_argument("--public-base", default=None,
+                    help="הכתובת הציבורית של הדלי, לעדכון אוטומטי של site/config.js")
+    ap.add_argument("--no-prune", action="store_true", help="לא למחוק גרסאות ישנות")
     args = ap.parse_args()
 
     if not os.path.exists(args.file):
@@ -263,8 +338,18 @@ def main():
     cfg = load_config()
     if not cfg:
         return 1
+    key = args.key or f"mehiron-{db_version(args.file)}.db"
+    base = args.public_base or cfg.get("public_base")
     try:
-        upload(cfg, args.file, args.key)
+        upload(cfg, args.file, key)
+        if base:
+            update_site_config(base.rstrip("/") + "/" + key)
+        else:
+            log("\nלא הוגדרה public_base, לכן site/config.js לא עודכן.")
+            log(f"עדכנו ידנית את dbUrl לשם הקובץ: {key}")
+        if not args.no_prune:
+            log("\nמנקה גרסאות ישנות בדלי:")
+            prune_old(cfg, key, keep=1)
     except urllib.error.HTTPError as e:
         log(f"\nשגיאה מהשרת: {e.code} {e.reason}")
         body = e.read().decode("utf-8", "replace")[:600]

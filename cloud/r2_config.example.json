@@ -2,5 +2,6 @@
   "account_id": "המזהה של החשבון ב-Cloudflare, מופיע בכתובת של לוח הבקרה",
   "access_key_id": "מפתח גישה שנוצר במסך R2 > Manage API Tokens",
   "secret_access_key": "הסוד שמוצג פעם אחת בלבד בעת יצירת המפתח",
-  "bucket": "mehiron"
+  "bucket": "mehiron",
+  "public_base": "הכתובת הציבורית של הדלי, למשל https://pub-xxxx.r2.dev"
 }

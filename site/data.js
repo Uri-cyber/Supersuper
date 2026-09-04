@@ -167,6 +167,14 @@ function SqliteApi(cfg) {
              address: r.address || UNKNOWN, note: sn.note };
   }
 
+  function pickNamed(branches, price) {
+    var tied = branches.filter(function (b) { return b.price === price; });
+    for (var i = 0; i < tied.length; i++) {
+      if (tied[i].city !== UNKNOWN) return tied[i];
+    }
+    return tied[0];
+  }
+
   function productBrief(row) {
     return {
       barcode: row.barcode, name: row.name || UNKNOWN, tint: tintFor(row.barcode),
@@ -384,7 +392,13 @@ function SqliteApi(cfg) {
         avg: money(prices.reduce(function (a, b) { return a + b; }, 0) / prices.length),
         gap_pct: prices[0] ? Math.round((prices[prices.length - 1] - prices[0]) / prices[0] * 1000) / 10 : 0,
         gap_shekel: money(prices[prices.length - 1] - prices[0]),
-        count: prices.length, min_branch: branches[0], max_branch: branches[branches.length - 1],
+        count: prices.length,
+        // בין סניפים שחולקים בדיוק את אותו מחיר, מציגים אחד שיש לו עיר.
+        // כולם נכונים באותה מידה, ולמשתמש עדיף אחד שאפשר להגיע אליו.
+        min_branch: pickNamed(branches, prices[0]),
+        max_branch: pickNamed(branches, prices[prices.length - 1]),
+        min_ties: branches.filter(function (b) { return b.price === prices[0]; }).length,
+        max_ties: branches.filter(function (b) { return b.price === prices[prices.length - 1]; }).length,
         dates: Object.keys(ds).sort()
       };
     }

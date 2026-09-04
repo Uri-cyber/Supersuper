@@ -236,6 +236,15 @@ def store_meta(chain, store_id):
             "address": r["address"] or UNKNOWN, "note": "; ".join(dict.fromkeys(notes))}
 
 
+def _pick_named(branches, price):
+    """מבין סניפים שחולקים אותו מחיר, מעדיף אחד שהעיר שלו ידועה."""
+    tied = [b for b in branches if b["price"] == price]
+    for b in tied:
+        if b["city"] != UNKNOWN:
+            return b
+    return tied[0]
+
+
 def product_brief(row):
     return {
         "barcode": row["barcode"],
@@ -428,7 +437,11 @@ def api_product(p):
             "gap_pct": round((prices[-1] - prices[0]) / prices[0] * 100, 1) if prices[0] else 0,
             "gap_shekel": money(prices[-1] - prices[0]),
             "count": len(prices),
-            "min_branch": branches[0], "max_branch": branches[-1],
+            # בין סניפים באותו מחיר בדיוק, מציגים אחד שיש לו עיר
+            "min_branch": _pick_named(branches, prices[0]),
+            "max_branch": _pick_named(branches, prices[-1]),
+            "min_ties": sum(1 for b in branches if b["price"] == prices[0]),
+            "max_ties": sum(1 for b in branches if b["price"] == prices[-1]),
             "dates": sorted({b["date"] for b in branches}),
         }
 

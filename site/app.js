@@ -9,6 +9,8 @@ var S = {
   query: "",
   focused: false,
   suggestions: [],
+  searchedFor: "",
+  searchError: null,
   home: null,
   product: null,
   productBarcode: null,
@@ -148,9 +150,11 @@ function tape() {
   var items = (S.home && S.home.ticker) || [];
   if (!items.length) return "";
   function one(t) {
-    var col = t.change == null ? "var(--muted-dark)" : (t.change < 0 ? "var(--green)" : "var(--red)");
-    var arrow = t.change == null ? "•" : (t.change < 0 ? "▼" : "▲");
-    var chg = t.change == null ? "אין השוואה" : arrow + " " + Math.abs(t.change).toFixed(1) + "%";
+    var col = t.change == null || t.change === 0 ? "var(--muted-dark)"
+              : (t.change < 0 ? "var(--green)" : "var(--red)");
+    var arrow = t.change == null ? "•" : (t.change < 0 ? "▼" : (t.change > 0 ? "▲" : "="));
+    var chg = t.change == null ? "אין השוואה"
+              : (t.change === 0 ? "= ללא שינוי" : arrow + " " + Math.abs(t.change).toFixed(1) + "%");
     return '<span class="tape-item" data-open="' + esc(t.barcode) + '">' +
       '<span class="tape-delta" style="color:' + col + '">' + esc(chg) + "</span>" +
       esc(t.name) + " · " + nis(t.price) + " ₪</span>";
@@ -167,6 +171,17 @@ function freshnessNote() {
 // ------------------------------------------------------------------ home
 function suggestHtml() {
   if (!S.focused) return "";
+  var q = S.query.trim();
+  if (S.searchError) {
+    return '<div class="suggest"><div style="padding:16px 18px;font-size:14px">' +
+      'החיפוש נכשל. בדקו את החיבור ונסו שוב.' +
+      '<div class="small muted" style="margin-top:6px">' + esc(S.searchError) + "</div></div></div>";
+  }
+  // תוצאות של מילה קודמת לא נשארות על המסך בזמן שמקלידים
+  if (q && S.searchedFor !== q) {
+    return '<div class="suggest"><div style="padding:16px 18px;color:var(--muted);font-size:14px">' +
+      '<span class="spinner"></span> מחפש…</div></div>';
+  }
   var list = S.suggestions;
   if (list.length) {
     return '<div class="suggest">' + list.map(function (s) {
@@ -178,8 +193,8 @@ function suggestHtml() {
         '<div style="font-size:14px;color:var(--green-link);font-weight:800;white-space:nowrap">החל מ־' + nis(s.min) + " ₪</div></div>";
     }).join("") + "</div>";
   }
-  if (S.query.trim()) {
-    return '<div class="suggest"><div style="padding:16px 18px;color:var(--muted);font-size:14px">לא נמצאו מוצרים ל־"' + esc(S.query) + '"</div></div>';
+  if (q) {
+    return '<div class="suggest"><div style="padding:16px 18px;color:var(--muted);font-size:14px">לא נמצאו מוצרים ל־"' + esc(q) + '"</div></div>';
   }
   return "";
 }
@@ -321,10 +336,14 @@ function screenProduct() {
   var kpis = '<div class="grid-auto">' +
     '<div class="kpi" style="background:var(--green)"><div style="font-size:13px;font-weight:800">הכי זול' + (S.city ? " ב" + esc(S.city) : " בארץ") + ' 🏆</div>' +
       '<div class="kpi-val tnum"><span data-count="' + st.min + '" data-key="pmin">' + nis(st.min) + '</span><span style="font-size:18px;font-weight:700"> ₪</span></div>' +
-      '<div class="small" style="color:var(--green-dark);font-weight:600;line-height:1.4">' + esc(st.min_branch.chain) + " · " + esc(st.min_branch.branch) + ", " + esc(st.min_branch.city) + "<br>עודכן " + dateHe(st.min_branch.date) + "</div></div>" +
+      '<div class="small" style="color:var(--green-dark);font-weight:600;line-height:1.4">' + esc(st.min_branch.chain) + " · " + esc(st.min_branch.branch) + ", " + esc(st.min_branch.city) +
+        (st.min_ties > 1 ? " ועוד " + (st.min_ties - 1) + " סניפים באותו מחיר" : "") +
+        "<br>עודכן " + dateHe(st.min_branch.date) + "</div></div>" +
     '<div class="kpi" style="background:var(--red);animation-delay:.08s"><div style="font-size:13px;font-weight:800;color:#fff">הכי יקר' + (S.city ? "" : " בארץ") + ' 💸</div>' +
       '<div class="kpi-val tnum" style="color:#fff"><span data-count="' + st.max + '" data-key="pmax">' + nis(st.max) + '</span><span style="font-size:18px;font-weight:700"> ₪</span></div>' +
-      '<div class="small" style="color:var(--red-tint);font-weight:600;line-height:1.4">' + esc(st.max_branch.chain) + " · " + esc(st.max_branch.branch) + ", " + esc(st.max_branch.city) + "<br>עודכן " + dateHe(st.max_branch.date) + "</div></div>" +
+      '<div class="small" style="color:var(--red-tint);font-weight:600;line-height:1.4">' + esc(st.max_branch.chain) + " · " + esc(st.max_branch.branch) + ", " + esc(st.max_branch.city) +
+        (st.max_ties > 1 ? " ועוד " + (st.max_ties - 1) + " סניפים באותו מחיר" : "") +
+        "<br>עודכן " + dateHe(st.max_branch.date) + "</div></div>" +
     '<div class="kpi" style="background:#fff;animation-delay:.16s"><div style="font-size:13px;font-weight:800;color:var(--muted)">חציון</div>' +
       '<div class="kpi-val tnum">' + nis(st.median) + '<span style="font-size:18px;font-weight:700"> ₪</span></div>' +
       '<div class="small muted">מתוך ' + num(st.count) + " סניפים</div></div>" +
@@ -529,7 +548,8 @@ function screenMarket() {
   var down = d.items.filter(function (i) { return i.change < 0; }).length;
 
   var list = d.items.map(function (i) {
-    var col = i.change == null ? "var(--muted)" : (i.change < 0 ? "var(--green)" : "var(--red)");
+    var col = i.change == null || i.change === 0 ? "var(--muted)"
+              : (i.change < 0 ? "var(--green)" : "var(--red)");
     var sp = "";
     if (i.spark && i.spark.length > 1) {
       var mn = Math.min.apply(null, i.spark), mx = Math.max.apply(null, i.spark), rg = (mx - mn) || 1;
@@ -606,7 +626,8 @@ function screenMarket() {
     : { bg: "var(--yellow)", icon: "🟡", t: "מחיר יציב", x: "שינוי של " + pctStr(sel.change) + " מאז " + dateHe(sel.prev_date) + "." };
 
   var t = sel.today || {};
-  var chgCol = sel.change == null ? "var(--muted)" : (sel.change < 0 ? "var(--green)" : "var(--red)");
+  var chgCol = sel.change == null || sel.change === 0 ? "var(--muted)"
+               : (sel.change < 0 ? "var(--green)" : "var(--red)");
 
   return '<div class="mkt">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px">' +
@@ -622,7 +643,10 @@ function screenMarket() {
             "<div><div style=\"display:flex;align-items:center;gap:8px\"><span class='mono pill' style='background:var(--yellow);color:var(--ink);font-size:11px'>" + esc(sel.symbol) + "</span><span class='small muted'>חציון ארצי · " + num(sel.stores) + " סניפים</span></div>" +
             '<h2 style="font-size:30px;font-weight:900;margin-top:6px">' + esc(sel.name) + "</h2></div>" +
             '<div style="text-align:left"><div class="mono" style="font-size:52px;font-weight:800;line-height:1">' + nis(sel.price) + "</div>" +
-            '<div class="mono" style="font-size:18px;font-weight:800;color:' + chgCol + '">' + (sel.change == null ? "אין השוואה" : (sel.change < 0 ? "▼ " : "▲ ") + pctStr(sel.change)) + "</div></div>" +
+            '<div class="mono" style="font-size:18px;font-weight:800;color:' + chgCol + '">' +
+            (sel.change == null ? "אין השוואה"
+             : sel.change === 0 ? "ללא שינוי"
+             : (sel.change < 0 ? "▼ " : "▲ ") + pctStr(sel.change)) + "</div></div>" +
           "</div>" +
           '<div class="mono small muted" style="margin-top:10px">עדכון אחרון ' + dateHe(sel.date) + (sel.prev_date ? " · קודם " + dateHe(sel.prev_date) + " · " + nis(sel.prev) + " ₪" : "") + "</div>" +
           '<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">' +
@@ -864,15 +888,53 @@ function render() {
 }
 
 // ------------------------------------------------------------------ actions
-function go(screen) {
+// כתובת לכל מצב, כדי שכפתור "אחורה", רענון ושיתוף קישור יעבדו
+function hashFor(screen, barcode) {
+  return screen === "product" && barcode ? "#product/" + encodeURIComponent(barcode) : "#" + screen;
+}
+
+function go(screen, opts) {
+  opts = opts || {};
   S.screen = screen;
   S.focused = false;
   window.scrollTo(0, 0);
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
-  history.replaceState(null, "", "#" + screen);
+  setHash(hashFor(screen), opts.replace);
   render();
 }
+
+var suppressHash = false;
+function setHash(h, replace) {
+  if (location.hash === h) return;
+  suppressHash = true;
+  if (replace) history.replaceState(null, "", h);
+  else history.pushState(null, "", h);
+  setTimeout(function () { suppressHash = false; }, 0);
+}
+
+// קורא את הכתובת ומציג את המצב שהיא מתארת
+function applyHash(initial) {
+  var h = (location.hash || "").replace(/^#/, "");
+  var m = /^product\/(.+)$/.exec(h);
+  if (m) {
+    var code = decodeURIComponent(m[1]);
+    if (S.screen === "product" && S.productBarcode === code && S.product) return;
+    S.screen = "product"; S.productBarcode = code; S.product = null; S.chains = null;
+    render(); loadProduct();
+    return;
+  }
+  var screen = ["home", "market", "scan", "cart"].indexOf(h) >= 0 ? h : "home";
+  if (!initial && screen === S.screen) { render(); return; }
+  S.screen = screen;
+  S.focused = false;
+  if (screen === "market" && !S.market) loadMarket();
+  if (screen === "cart") loadCart2();
+  render();
+}
+
+window.addEventListener("popstate", function () { if (!suppressHash) applyHash(false); });
+window.addEventListener("hashchange", function () { if (!suppressHash) applyHash(false); });
 
 function openProduct(barcode) {
   S.screen = "product";
@@ -881,6 +943,7 @@ function openProduct(barcode) {
   S.chains = null;
   S.focused = false;
   window.scrollTo(0, 0);
+  setHash(hashFor("product", barcode));
   render();
   loadProduct();
 }
@@ -916,19 +979,39 @@ function addToCart(barcode, name, tint) {
 
 var doSuggest = debounce(function () {
   var v = S.query.trim();
-  if (!v) { S.suggestions = []; paintSuggest(); return; }
+  if (!v) { S.suggestions = []; S.searchedFor = ""; S.searchError = null; paintSuggest(); return; }
   API.search(v, 6).then(function (d) {
-    S.suggestions = d.results; if (S.focused) paintSuggest();
-  }).catch(function () {});
+    if (S.query.trim() !== v) return;      // תשובה מאיחור על הקלדה ישנה
+    S.suggestions = d.results;
+    S.searchedFor = v;
+    S.searchError = null;
+    if (S.focused) paintSuggest();
+  }).catch(function (e) {
+    if (S.query.trim() !== v) return;
+    S.suggestions = [];
+    S.searchError = e && e.message ? e.message : String(e);
+    if (S.focused) paintSuggest();
+  });
 }, 220);
 
 function runSearch() {
   var v = S.query.trim();
   if (!v) return;
+  S.searchError = null;
   API.search(v, 40).then(function (d) {
-    if (!d.results.length) { toast('לא נמצאו מוצרים ל־"' + v + '"'); return; }
     if (d.results.length === 1) { openProduct(d.results[0].barcode); return; }
-    S.suggestions = d.results; S.focused = true; paintSuggest();
+    S.suggestions = d.results;
+    S.searchedFor = v;
+    S.focused = true;
+    paintSuggest();
+    if (!d.results.length) toast('לא נמצאו מוצרים ל־"' + v + '"');
+  }).catch(function (e) {
+    // כשל שקט הוא הגרוע מכל: המשתמש לוחץ ולא קורה כלום
+    S.suggestions = [];
+    S.searchError = e && e.message ? e.message : String(e);
+    S.focused = true;
+    paintSuggest();
+    toast("החיפוש נכשל. נסו שוב.");
   });
 }
 
@@ -1071,11 +1154,7 @@ API.init(boot)
     S.meta = res[1].meta;
     S.cities = res[1].cities;
     S.geo = res[2] || {};
-    var hash = (location.hash || "").replace("#", "");
-    if (["home", "market", "scan", "cart"].indexOf(hash) >= 0) S.screen = hash;
-    if (S.screen === "market") loadMarket();
-    if (S.screen === "cart") loadCart2();
-    render();
+    applyHash(true);
   })
   .catch(function (e) {
     document.getElementById("app").innerHTML =
