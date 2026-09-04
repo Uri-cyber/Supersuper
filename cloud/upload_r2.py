@@ -28,6 +28,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -77,7 +78,23 @@ def signing_key(secret, datestamp):
     return _sign(k, "aws4_request")
 
 
-def signed_request(cfg, method, key, query="", payload=b"", body_len=None,
+def build_query(params):
+    """
+    בונה מחרוזת שאילתה אחת שמשמשת גם לכתובת וגם לחתימה.
+
+    שתיהן חייבות להיות זהות לחלוטין: פרמטרים ממוינים לפי שם, וכל פרמטר
+    בצורת שם=ערך גם כשאין לו ערך. אחרת R2 מחשבת חתימה אחרת ומחזירה
+    SignatureDoesNotMatch, וזה מה שקרה עם "?uploads" שנחתם בלי סימן שוויון.
+    """
+    if not params:
+        return ""
+    pairs = sorted((urllib.parse.quote(str(k), safe="-_.~"),
+                    urllib.parse.quote("" if v is None else str(v), safe="-_.~"))
+                   for k, v in params)
+    return "&".join(f"{k}={v}" for k, v in pairs)
+
+
+def signed_request(cfg, method, key, params=None, payload=b"", body_len=None,
                    body_stream=None, content_sha=None, extra_headers=None):
     """בונה בקשה חתומה ל-R2 ומחזיר את התשובה."""
     host = f"{cfg['account_id']}.r2.cloudflarestorage.com"
@@ -100,8 +117,9 @@ def signed_request(cfg, method, key, query="", payload=b"", body_len=None,
 
     signed_headers = ";".join(sorted(headers))
     canonical_headers = "".join(f"{k}:{headers[k]}\n" for k in sorted(headers))
-    canonical_request = "\n".join([method, canonical_uri, query, canonical_headers,
-                                   signed_headers, content_sha])
+    query = build_query(params)
+    canonical_request = "\n".join([method, canonical_uri, query,
+                                   canonical_headers, signed_headers, content_sha])
     scope = f"{datestamp}/{REGION}/{SERVICE}/aws4_request"
     to_sign = "\n".join(["AWS4-HMAC-SHA256", amzdate, scope,
                          hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()])
@@ -186,7 +204,7 @@ def upload(cfg, path, key):
         upload_id = state["upload_id"]
         done = {int(k): v for k, v in state["parts"].items()}
     else:
-        resp = signed_request(cfg, "POST", key, query="uploads",
+        resp = signed_request(cfg, "POST", key, params=[("uploads", "")],
                               extra_headers={"content-type": "application/octet-stream"})
         root = ET.fromstring(resp.read())
         ns = {"s3": root.tag.split("}")[0].strip("{")} if "}" in root.tag else {}
@@ -207,7 +225,7 @@ def upload(cfg, path, key):
         reader = PartReader(path, offset, plen)
         try:
             resp = signed_request(cfg, "PUT", key,
-                                  query=f"partNumber={i}&uploadId={upload_id}",
+                                  params=[("partNumber", i), ("uploadId", upload_id)],
                                   body_len=plen, body_stream=reader, content_sha=sha)
             etag = resp.headers.get("ETag", "").strip('"')
         finally:
@@ -225,7 +243,7 @@ def upload(cfg, path, key):
         f"<Part><PartNumber>{i}</PartNumber><ETag>\"{done[i]}\"</ETag></Part>"
         for i in sorted(done))
     body = f"<CompleteMultipartUpload>{parts_xml}</CompleteMultipartUpload>".encode("utf-8")
-    signed_request(cfg, "POST", key, query=f"uploadId={upload_id}", payload=body,
+    signed_request(cfg, "POST", key, params=[("uploadId", upload_id)], payload=body,
                    extra_headers={"content-type": "application/xml"})
     if os.path.exists(STATE_PATH):
         os.remove(STATE_PATH)
