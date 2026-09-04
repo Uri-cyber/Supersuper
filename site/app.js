@@ -869,7 +869,8 @@ function scanResults() {
   return '<div class="wrap" style="display:flex;flex-direction:column;gap:20px">' +
     '<div style="background:var(--ink);color:#fff;border:3px solid var(--ink);border-radius:22px;padding:26px;box-shadow:8px 8px 0 var(--green);display:flex;flex-wrap:wrap;gap:24px;align-items:center">' +
       (paid != null ?
-        '<div><div class="small" style="color:var(--muted-dark);font-weight:700">שילמתם על ' + r.paid_known + ' פריטים שזוהו</div>' +
+        '<div><div class="small" style="color:var(--muted-dark);font-weight:700">שילמתם על ' +
+        (r.paid_known === 1 ? "פריט אחד שזוהה" : r.paid_known + " פריטים שזוהו") + "</div>" +
         '<div class="tnum" style="font-size:44px;font-weight:900;text-decoration:line-through;text-decoration-color:var(--red);text-decoration-thickness:5px">' + nis(paid) + " ₪</div></div>" : "") +
       '<div><div class="small" style="color:var(--muted-dark);font-weight:700">הכי זול ' + (S.city ? "ב" + esc(S.city) : "בארץ") + "</div>" +
         '<div style="font-size:19px;font-weight:900">' + esc(best.chain) + " · " + esc(best.branch) + "</div>" +
