@@ -24,6 +24,7 @@ var S = {
   range: "1M",
   scanPhase: "idle",
   scanText: "",
+  scanPhoto: null,        // {pct, msg, err, found, dropped, name}
   scanResult: null,
   meta: null,
   cities: [],
@@ -765,18 +766,26 @@ function screenScan() {
     '<div style="flex:1 1 320px;display:flex;flex-direction:column;gap:16px">' +
       '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);width:fit-content;transform:rotate(-2deg);font-weight:900">▦ בדיקת קבלה</div>' +
       '<h1 style="font-size:38px;font-weight:900;line-height:1.1">כמה שילמתם <span style="color:var(--red)">יותר מדי</span> בקנייה האחרונה?</h1>' +
-      '<p class="muted" style="font-size:16px;line-height:1.6">הדביקו את שורות הקבלה, ונשווה כל פריט מול המחיר שלו בכל סניף בארץ.</p>' +
+      '<p class="muted" style="font-size:16px;line-height:1.6">צלמו את הקבלה או הדביקו את שורותיה, ונשווה כל פריט מול המחיר שלו בכל סניף - ונראה לכם איפה בעיר שלכם אותו סל זול יותר.</p>' +
       '<div style="display:flex;flex-direction:column;gap:10px">' +
-        stepPill(1, "מדביקים את שורות הקבלה") + stepPill(2, "מזהים את המוצרים לפי שם או ברקוד") + stepPill(3, "מחשבים כמה אותו סל עולה בסניף הזול") +
+        stepPill(1, "מצלמים את הקבלה או מדביקים את שורותיה") + stepPill(2, "עוברים על מה שזוהה ומתקנים") + stepPill(3, "רואים איפה אותו סל זול יותר, בעיר שלכם") +
       "</div>" +
-      '<div class="warn">סריקת צילום של קבלה אינה נתמכת. הדביקו טקסט: קבלה דיגיטלית מהמייל או מאפליקציית הרשת, שורה לכל מוצר.</div>' +
+      '<div class="note">הקריאה של הצילום נעשית במכשיר שלכם. התמונה לא נשלחת לשום שרת ולא נשמרת.</div>' +
     "</div>" +
     '<div style="flex:1 1 380px;display:flex;flex-direction:column;gap:12px">' +
       '<div class="drop" style="min-height:auto;align-items:stretch;text-align:right">' +
-        '<div style="display:flex;align-items:center;gap:12px"><span style="width:44px;height:44px;border-radius:12px;background:var(--ink);color:var(--yellow);display:grid;place-items:center;font-size:22px;transform:rotate(-6deg);box-shadow:4px 4px 0 var(--yellow);flex:none">▦</span>' +
-        '<div style="font-size:16px;font-weight:900">הדביקו כאן את שורות הקבלה</div></div>' +
+        '<label class="btn btn-green" style="display:flex;align-items:center;justify-content:center;gap:10px;font-size:17px;padding:16px" ' +
+          (S.scanPhoto && S.scanPhoto.pct != null && !S.scanPhoto.err ? 'aria-disabled="true"' : "") + ">" +
+          "📷 צלמו את הקבלה" +
+          '<input type="file" id="scanphoto" accept="image/*" capture="environment" style="display:none"></label>' +
+        photoStatus() +
+        '<div style="display:flex;align-items:center;gap:10px;color:var(--muted);font-size:13px;font-weight:700">' +
+          '<span style="flex:1;height:2px;background:var(--div2)"></span>או הדביקו טקסט' +
+          '<span style="flex:1;height:2px;background:var(--div2)"></span></div>' +
         '<textarea id="scantext" rows="10" placeholder="לדוגמה:&#10;2 x חלב תנובה 3% 1 ליטר   14.40&#10;קוטג\' תנובה 5%   6.90&#10;7290004131074   7.20" style="width:100%;border:2px solid var(--ink);border-radius:12px;padding:12px;font-size:14px;font-family:\'JetBrains Mono\',monospace;line-height:1.8;resize:vertical">' + esc(S.scanText) + "</textarea>" +
         '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+          '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700">העיר שלי' +
+            '<select id="scancity" style="border:2px solid var(--ink);border-radius:10px;padding:8px 10px;font-weight:700;font-size:14px;max-width:190px">' + cityOptions() + "</select></label>" +
           '<button class="btn btn-green" data-scan-run ' + (busy ? "disabled" : "") + ">" + (busy ? '<span class="spinner"></span> בודקים…' : "בדקו את הקבלה") + "</button>" +
           '<button class="btn" data-scan-sample>מלא דוגמה</button>' +
           '<label class="btn" style="display:inline-flex;align-items:center">טען קובץ טקסט<input type="file" id="scanfile" accept=".txt,.csv,text/plain" style="display:none"></label>' +
@@ -784,6 +793,40 @@ function screenScan() {
         '<div class="note">אפשר גם לכתוב ברקודים בלבד, אחד בכל שורה. מחיר ששולם בסוף השורה הוא לא חובה, אבל בלעדיו לא נוכל להראות כמה שילמתם יותר מדי.</div>' +
       "</div></div></div>";
 }
+// רשימת הערים, זהה בכל המסכים
+function cityOptions() {
+  return ['<option value="">כל הארץ</option>'].concat(S.cities.map(function (c) {
+    return '<option value="' + esc(c.name) + '"' + (S.city === c.name ? " selected" : "") + ">" +
+      esc(c.name) + " (" + c.stores + ")</option>";
+  })).join("");
+}
+
+/* מצב קריאת הצילום. אחרי שהיא מסתיימת מוצגת הודעה שמבקשת לעבור על
+   השורות: הקריאה טועה לפעמים, ואסור שמספר שגוי ייכנס להשוואה בשקט. */
+function photoStatus() {
+  var st = S.scanPhoto;
+  if (!st) return "";
+  if (st.err) {
+    return '<div class="warn">לא הצלחנו לקרוא את הצילום: ' + esc(st.err) +
+      '<div class="small" style="margin-top:6px">אפשר לצלם שוב באור טוב יותר, או להדביק את השורות ידנית.</div></div>';
+  }
+  if (st.pct != null) {
+    return '<div style="background:var(--ink);color:#fff;border-radius:12px;padding:12px 14px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:800">' +
+        '<span>' + esc(st.msg || "קוראים") + "…</span><span class=\"tnum\">" + Math.round(st.pct * 100) + "%</span></div>" +
+      '<div style="height:8px;border-radius:4px;background:#33353f;margin-top:8px;overflow:hidden;direction:ltr">' +
+        '<div style="height:100%;width:' + (st.pct * 100).toFixed(0) + '%;background:var(--green);border-radius:4px;transition:width .2s"></div></div>' +
+      '<div class="small" style="margin-top:6px;color:var(--muted-dark)">בפעם הראשונה יורד מנוע הקריאה, כ-6 מגה. אחר כך הוא שמור במכשיר.</div></div>';
+  }
+  if (st.found != null) {
+    return '<div style="background:var(--yellow);border:3px solid var(--ink);border-radius:12px;padding:12px 14px;font-weight:700;font-size:14px">' +
+      "זוהו " + st.found + " שורות מהצילום." +
+      (st.dropped ? " " + st.dropped + " שורות שנראו כמו כותרת או סיכום לא נכנסו." : "") +
+      '<div class="small" style="margin-top:6px;font-weight:600">הקריאה מהצילום לא תמיד מדויקת. עברו על השורות למטה, תקנו מה שצריך, ואז לחצו "בדקו את הקבלה".</div></div>';
+  }
+  return "";
+}
+
 function stepPill(n, txt) {
   return '<div style="display:flex;align-items:center;gap:10px;background:#fff;border:3px solid var(--ink);border-radius:14px;padding:10px 14px;font-weight:700">' +
     '<span style="width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:900;flex:none">' + n + "</span>" + esc(txt) + "</div>";
@@ -793,7 +836,12 @@ function scanResults() {
   var r = S.scanResult, a = r.analysis;
   if (!a || !a.best) {
     return '<div class="wrap"><div class="card"><h1 style="font-size:26px">לא הצלחנו להשוות</h1>' +
-      '<p class="muted" style="margin-top:10px">לא זוהו מוצרים מהקבלה. נסו לכתוב שם מוצר מלא יותר, או ברקוד.</p>' +
+      '<p class="muted" style="margin-top:10px">' +
+      (S.city
+        ? "לא נמצא סניף ב" + esc(S.city) + " שמוכר את המוצרים שזוהו. נסו לבחור \"כל הארץ\", או לכתוב שם מוצר מלא יותר."
+        : "לא זוהו מוצרים מהקבלה. נסו לכתוב שם מוצר מלא יותר, או ברקוד.") + "</p>" +
+      '<div style="margin-top:14px"><label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700;width:fit-content">העיר שלי' +
+        '<select id="scancity" style="border:2px solid var(--ink);border-radius:10px;padding:8px 10px;font-weight:700;font-size:14px;max-width:190px">' + cityOptions() + "</select></label></div>" +
       (r.unmatched.length ? '<div class="note" style="margin-top:10px">שורות שלא זוהו: ' + esc(r.unmatched.map(function (u) { return u.desc; }).join(" · ")) + "</div>" : "") +
       '<button class="btn btn-ink" style="margin-top:16px" data-scan-reset>נסו קבלה אחרת</button></div></div>';
   }
@@ -823,17 +871,30 @@ function scanResults() {
       (paid != null ?
         '<div><div class="small" style="color:var(--muted-dark);font-weight:700">שילמתם על ' + r.paid_known + ' פריטים שזוהו</div>' +
         '<div class="tnum" style="font-size:44px;font-weight:900;text-decoration:line-through;text-decoration-color:var(--red);text-decoration-thickness:5px">' + nis(paid) + " ₪</div></div>" : "") +
-      '<div><div class="small" style="color:var(--muted-dark);font-weight:700">אותו סל ב' + esc(best.chain) + " · " + esc(best.branch) + '</div>' +
+      '<div><div class="small" style="color:var(--muted-dark);font-weight:700">הכי זול ' + (S.city ? "ב" + esc(S.city) : "בארץ") + "</div>" +
+        '<div style="font-size:19px;font-weight:900">' + esc(best.chain) + " · " + esc(best.branch) + "</div>" +
+        (best.address && best.address !== UNKNOWN
+          ? '<div class="small" style="color:var(--muted-dark)">' + esc(best.address) + "</div>" : "") +
         '<div class="tnum" style="font-size:44px;font-weight:900;color:var(--green)"><span data-count="' + bestTotal + '" data-key="scanbest">' + nis(bestTotal) + "</span> ₪</div></div>" +
       (saving != null && saving > 0 ?
         '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);color:var(--ink);font-weight:900;transform:rotate(-2deg);font-size:15px">שילמתם ' + nis(saving) + " ₪ יותר · " + (paid ? (saving / paid * 100).toFixed(1) : 0) + "% מהסל</div>" : "") +
     "</div>" +
-    (r.unmatched.length ? '<div class="warn">' + r.unmatched.length + " שורות לא זוהו ולא נכללו בחישוב: " + esc(r.unmatched.slice(0, 8).map(function (u) { return u.desc; }).join(" · ")) + "</div>" : "") +
+    (r.unmatched.length
+      ? '<div class="warn">' +
+        (r.unmatched.length === 1 ? "שורה אחת לא זוהתה ולא נכללה בחישוב: " :
+         r.unmatched.length + " שורות לא זוהו ולא נכללו בחישוב: ") +
+        esc(r.unmatched.slice(0, 8).map(function (u) { return u.desc; }).join(" · ")) + "</div>"
+      : "") +
     '<div class="card" style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th>מוצר</th><th>שילמתם</th><th>הזול בארץ</th><th class="col-opt">ב' + esc(best.chain) + '</th><th class="col-opt">הפרש</th></tr></thead><tbody>' + rows + "</tbody></table>" +
       '<div class="note" style="margin-top:12px">' + esc(freshnessNote()) + "</div></div>" +
-    '<div style="display:flex;gap:12px;flex-wrap:wrap">' +
+    '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
+      '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700">העיר שלי' +
+        '<select id="scancity" style="border:2px solid var(--ink);border-radius:10px;padding:8px 10px;font-weight:700;font-size:14px;max-width:190px">' + cityOptions() + "</select></label>" +
       '<button class="btn btn-ink" data-scan-tocart>טענו את הסל ותכננו את הקנייה הבאה ←</button>' +
-      '<button class="btn" data-scan-reset>בדקו קבלה אחרת</button></div></div>';
+      '<button class="btn" data-scan-reset>בדקו קבלה אחרת</button></div>' +
+    '<div class="note">' + (S.city
+      ? "ההשוואה מוגבלת לסניפים ב" + esc(S.city) + ". שינוי העיר מחשב מחדש."
+      : "ההשוואה היא מול כל הסניפים בארץ. בחרו עיר כדי לראות איפה כדאי לקנות קרוב אליכם.") + "</div></div>";
 }
 
 // ------------------------------------------------------------------ cart
@@ -1097,14 +1158,48 @@ function runSearch() {
 }
 
 function runScan() {
-  var txt = (document.getElementById("scantext") || {}).value || "";
-  if (!txt.trim()) { toast("הדביקו קודם את שורות הקבלה"); return; }
+  var box = document.getElementById("scantext");
+  var txt = box ? box.value : S.scanText;
+  if (!txt || !txt.trim()) { toast("הדביקו קודם את שורות הקבלה"); return; }
   S.scanText = txt;
   S.scanPhase = "scanning";
   render();
   API.receipt(txt, S.city)
     .then(function (d) { S.scanResult = d; S.scanPhase = "done"; window.scrollTo(0, 0); render(); })
     .catch(function (e) { S.scanPhase = "idle"; toast(e.message); render(); });
+}
+
+/* קריאת הקבלה מהצילום. התוצאה נכתבת לתיבת הטקסט ונעצרת שם:
+   ההשוואה לא מתחילה לבד, כדי שהמשתמש יראה מה זוהה לפני שמסתמכים על זה. */
+function readReceiptPhoto(file) {
+  if (!window.MehironOCR) { toast("רכיב הקריאה לא נטען. רעננו את הדף."); return; }
+  if (file.type.indexOf("image/") !== 0) { toast("צריך קובץ תמונה"); return; }
+  S.scanPhoto = { pct: 0, msg: "מתחילים", name: file.name };
+  render();
+  var last = 0;
+  window.MehironOCR.read(file, function (pct, msg) {
+    // מצייר מחדש רק כשההתקדמות זזה מספיק, אחרת המסך מהבהב
+    if (pct - last < 0.03 && pct < 1) return;
+    last = pct;
+    if (!S.scanPhoto || S.scanPhoto.err) return;
+    S.scanPhoto.pct = pct;
+    S.scanPhoto.msg = msg;
+    render();
+  }).then(function (res) {
+    if (!res.lines.length) {
+      S.scanPhoto = { err: "לא זוהו שורות מוצרים בתמונה" };
+      render();
+      return;
+    }
+    S.scanText = res.lines.join("\n");
+    S.scanPhoto = { found: res.lines.length, dropped: res.dropped.length };
+    render();
+    var el = document.getElementById("scantext");
+    if (el) { el.value = S.scanText; el.focus(); el.setSelectionRange(0, 0); }
+  }).catch(function (e) {
+    S.scanPhoto = { err: (e && e.message) || String(e) };
+    render();
+  });
 }
 
 function sampleReceipt() {
@@ -1115,6 +1210,7 @@ function sampleReceipt() {
     return (i === 1 ? "2 x " : "") + p.name + "   " + paid;
   });
   S.scanText = lines.join("\n");
+  S.scanPhoto = null;
   var el = document.getElementById("scantext");
   if (el) el.value = S.scanText;
   toast("מולאה דוגמה ממוצרים אמיתיים במסד. המחירים בה הם המחשה בלבד.");
@@ -1204,6 +1300,17 @@ document.addEventListener("change", function (ev) {
     try { localStorage.setItem(LS_CITY, S.city); } catch (e) {}
     if (S.screen === "product") { S.product = null; render(); loadProduct(); }
     else { render(); loadCart2(); }
+  }
+  if (ev.target.id === "scancity") {
+    S.city = ev.target.value;
+    try { localStorage.setItem(LS_CITY, S.city); } catch (e) {}
+    // אם כבר יש תוצאה על המסך, מחשבים אותה מחדש לעיר החדשה
+    if (S.scanPhase === "done" && S.scanText.trim()) runScan();
+    else render();
+  }
+  if (ev.target.id === "scanphoto" && ev.target.files && ev.target.files[0]) {
+    readReceiptPhoto(ev.target.files[0]);
+    ev.target.value = "";
   }
   if (ev.target.id === "scanfile" && ev.target.files && ev.target.files[0]) {
     var fr = new FileReader();
