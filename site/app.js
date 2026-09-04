@@ -1092,7 +1092,12 @@ document.addEventListener("click", function (ev) {
 });
 
 document.addEventListener("input", function (ev) {
-  if (ev.target.id === "q") { S.query = ev.target.value; doSuggest(); }
+  if (ev.target.id === "q") {
+    S.query = ev.target.value;
+    S.searchError = null;
+    if (S.focused) paintSuggest();   // מציג "מחפש…" עד שהתשובה מגיעה
+    doSuggest();
+  }
   if (ev.target.id === "scantext") { S.scanText = ev.target.value; }
 });
 document.addEventListener("focusin", function (ev) {
