@@ -27,7 +27,6 @@ var S = {
   scanResult: null,
   meta: null,
   cities: [],
-  geo: {},
   burst: false,
   marketQuery: "",
   filterOpen: (typeof window !== "undefined" && window.innerWidth > 820),
@@ -376,19 +375,22 @@ function screenProduct() {
       '<div style="font-size:11px;text-align:center;line-height:1.2;height:34px;font-weight:700;overflow:hidden">' + esc(c.chain) + "</div></div>";
   }).join("");
 
-  // map
-  var mapPins = "", noGeo = 0;
-  d.city_rows.forEach(function (c, i) {
-    var g = S.geo[c.city];
-    if (!g) { noGeo++; return; }
-    var xy = latlngToXY(g[0], g[1]);
-    var size = 10 + Math.min(10, Math.round(c.stores / 6));
-    mapPins += '<div class="map-pin" style="left:' + xy.x + "px;top:" + xy.y + "px;width:" + size + "px;height:" + size + "px;background:" + c.color +
-      ";animation-delay:" + (i * 40) + 'ms" title="' + esc(c.city) + ": מ־" + nis(c.min) + " ₪ · " + c.stores + ' סניפים"></div>';
-  });
-  var legend = d.city_rows.slice(0, 6).map(function (c) {
-    return '<div style="display:flex;align-items:center;gap:8px;font-size:14px"><span class="dot" style="background:' + c.color + '"></span>' +
-      '<span style="flex:1;font-weight:600">' + esc(c.city) + '</span><span style="font-weight:900" class="tnum">' + nis(c.min) + "</span></div>";
+  // ערים לפי מחיר. הייתה כאן מפה מצוירת, אבל מיקום מקורב לפי מרכז היישוב
+  // לא אמר דבר על הסניף עצמו. רשימה מדורגת מוסרת את אותו מידע בלי הרעש.
+  var CITY_MAX = 12;
+  var cityMin = d.city_rows.length ? d.city_rows[0].min : 0;
+  var cityMax = d.city_rows.length ? Math.max.apply(null, d.city_rows.map(function (c) { return c.min; })) : 0;
+  var cityRange = (cityMax - cityMin) || 1;
+  var cityList = d.city_rows.slice(0, CITY_MAX).map(function (c) {
+    var w = 6 + (1 - (c.min - cityMin) / cityRange) * 94;
+    return '<div style="display:grid;grid-template-columns:1fr auto;gap:3px 10px;align-items:baseline">' +
+      '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
+        '<span style="font-weight:700;font-size:14px">' + esc(c.city) + "</span>" +
+        '<span class="small muted"> · ' + (c.stores === 1 ? "סניף אחד" : c.stores + " סניפים") + "</span></span>" +
+      '<span class="tnum" style="font-weight:900;color:' + c.color + '">' + nis(c.min) + " ₪</span>" +
+      '<div style="grid-column:1/-1;height:7px;border-radius:4px;background:var(--div2);overflow:hidden;direction:ltr">' +
+        '<div style="height:100%;width:' + w.toFixed(0) + '%;background:' + c.color + ';border-radius:4px"></div></div>' +
+    "</div>";
   }).join("");
 
   // history
@@ -508,7 +510,6 @@ function screenProduct() {
   var warnings = [];
   if (d.excluded_old) warnings.push("הושמטו " + num(d.excluded_old) + " מחירים ישנים מ־" + S.meta.fresh_days + " ימים (סניפים שהרשת הפסיקה לפרסם).");
   if (d.no_city_count) warnings.push(num(d.no_city_count) + " סניפים ללא עיר בקובץ הרשת מסומנים כ\"לא ידוע\".");
-  if (noGeo) warnings.push(noGeo + " ערים אינן מוצגות על המפה (אין להן קואורדינטות ברשימה).");
 
   return '<div class="prod-wrap">' +
     '<aside class="side">' +
@@ -545,14 +546,13 @@ function screenProduct() {
           '<div class="bars">' + bars + "</div>" +
           (d.chain_rows.length > BAR_MAX ? '<div class="note">מוצגות ' + BAR_MAX + " הרשתות הזולות מתוך " + d.chain_rows.length + " שמוכרות את המוצר.</div>" : "") +
           "</section>" +
-        '<section class="card" style="display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">ערים על המפה</h3><span class="small muted">צבע = מחיר</span></div>' +
-          '<div style="display:flex;gap:16px;align-items:stretch;flex-wrap:wrap">' + mapSvg(mapPins, d.city_rows.length) +
-          '<div style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:10px;justify-content:center">' +
-            '<div class="small muted" style="font-weight:700">סקאלת מחיר</div>' +
-            '<div style="height:14px;border-radius:7px;border:2px solid var(--ink);background:linear-gradient(90deg,var(--red),var(--yellow),var(--green))"></div>' +
-            '<div style="display:flex;justify-content:space-between;font-weight:900" class="tnum small"><span style="color:var(--green-link)">' + nis(st.min) + " ₪</span><span style=\"color:var(--red)\">" + nis(st.max) + " ₪</span></div>" +
-            '<div style="display:flex;flex-direction:column;gap:6px;margin-top:8px">' + legend + "</div></div></div>" +
-          '<div class="note">מיקום מקורב לפי מרכז היישוב, לא לפי כתובת הסניף.</div></section>' +
+        (d.city_rows.length
+          ? '<section class="card" style="display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">ערים לפי מחיר</h3><span class="small muted">' + d.city_rows.length + ' ערים</span></div>' +
+            '<div style="display:flex;flex-direction:column;gap:11px">' + cityList + "</div>" +
+            '<div class="note">המחיר הוא הזול ביותר שנמצא בעיר, לא ממוצע.' +
+            (d.city_rows.length > CITY_MAX ? " מוצגות " + CITY_MAX + " הערים הזולות מתוך " + d.city_rows.length + "." : "") +
+            "</div></section>"
+          : "") +
         hist +
         '<section class="card" style="display:flex;flex-direction:column;gap:14px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">10 הסניפים הזולים</h3>' + (oneDate ? '<span class="small muted tnum">כל המחירים מיום ' + dateHe(oneDate) + '</span>' : "") + '<span class="small" style="color:#fff;background:var(--purple);padding:3px 10px;border-radius:999px;font-weight:700">' + esc(S.city || "כל הארץ") + "</span></div>" +
           '<div style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th>#</th><th>רשת</th><th>סניף</th><th class="col-opt">עיר</th><th>מחיר</th>' + (oneDate ? "" : '<th class="col-opt">תאריך</th>') + '<th>מול חציון</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
@@ -572,42 +572,6 @@ function confettiHtml() {
 }
 
 // מיפוי קואורדינטות לקנבס המפה המסוגננת (200x300)
-function latlngToXY(lat, lng) {
-  var y = 6 + (33.33 - lat) * 74.7;
-  y = Math.max(8, Math.min(292, y));
-  var b = mapBounds(y);
-  var x = b.w + (lng - 34.25) / (35.95 - 34.25) * 96;
-  x = Math.max(b.w + 5, Math.min(b.e - 5, x));
-  return { x: Math.round(x), y: Math.round(y) };
-}
-// גבולות המתאר המסוגנן לפי גובה, כדי שהנקודות יישבו בתוך היבשה
-var MAP_W = [[6,84],[24,76],[44,70],[62,66],[82,64],[100,62],[118,58],[136,52],[154,48],[174,50],[194,56],[214,64],[236,74],[256,80],[274,84],[294,92]];
-var MAP_E = [[6,112],[24,130],[34,134],[52,128],[70,120],[88,112],[104,108],[116,100],[128,86],[140,76],[154,72],[168,78],[178,92],[186,106],[200,112],[216,108],[232,102],[250,98],[268,96],[284,98]];
-function interp(tbl, y) {
-  if (y <= tbl[0][0]) return tbl[0][1];
-  for (var i = 1; i < tbl.length; i++) {
-    if (y <= tbl[i][0]) {
-      var a = tbl[i - 1], b = tbl[i];
-      return a[1] + (b[1] - a[1]) * (y - a[0]) / (b[0] - a[0]);
-    }
-  }
-  return tbl[tbl.length - 1][1];
-}
-function mapBounds(y) { return { w: interp(MAP_W, y), e: interp(MAP_E, y) }; }
-
-function mapSvg(pins, cityCount) {
-  return '<div class="map-box">' +
-    '<svg viewBox="0 0 200 300" style="position:absolute;inset:0;width:100%;height:100%;direction:ltr">' +
-    '<defs><pattern id="sea" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M0 5 Q2.5 2 5 5 T10 5" fill="none" stroke="rgba(20,21,26,.12)" stroke-width="1"/></pattern></defs>' +
-    '<rect width="200" height="300" fill="url(#sea)"/>' +
-    '<path d="M86 6 L112 4 L128 12 L134 34 L128 52 L120 70 L112 88 L108 104 L100 116 L86 128 L76 140 L72 154 L78 168 L92 178 L106 186 L112 200 L108 216 L102 232 L98 250 L96 268 L98 284 L94 294 L88 290 L84 274 L80 256 L74 236 L64 214 L56 194 L50 174 L48 154 L52 136 L58 118 L62 100 L64 82 L66 62 L70 44 L76 24 Z" fill="var(--bg)" stroke="var(--ink)" stroke-width="3" stroke-linejoin="round"/>' +
-    '<path d="M124 60 L134 60 L136 72 L128 78 Z" fill="#7cc7ff" stroke="var(--ink)" stroke-width="2"/>' +
-    '<path d="M104 118 L114 116 L118 136 L112 150 L104 148 Z" fill="#7cc7ff" stroke="var(--ink)" stroke-width="2"/>' +
-    '<text x="24" y="150" font-size="9" font-weight="800" fill="rgba(20,21,26,.45)" transform="rotate(-72 24 150)">הים התיכון</text></svg>' +
-    pins +
-    '<div style="position:absolute;right:8px;top:8px;background:var(--ink);color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px">' + cityCount + " ערים</div></div>";
-}
-
 // ------------------------------------------------------------------ market
 function screenMarket() {
   var d = S.market;
@@ -1289,15 +1253,13 @@ API.init(boot)
     boot("טוען מחירים…");
     return Promise.all([
       API.home(),
-      API.meta(),
-      fetch("cities_geo.json").then(function (r) { return r.json(); }).catch(function () { return {}; })
+      API.meta()
     ]);
   })
   .then(function (res) {
     S.home = res[0];
     S.meta = res[1].meta;
     S.cities = res[1].cities;
-    S.geo = res[2] || {};
     applyHash(true);
   })
   .catch(function (e) {

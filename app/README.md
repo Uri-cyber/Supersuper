@@ -68,7 +68,6 @@ il-prices update
 | `app/server.py` | השרת וה־API. ללא ספריות חיצוניות |
 | `app/build_index.py` | בונה טבלאות עזר כדי שהאתר יגיב מיד |
 | `site/` | האתר עצמו: `index.html`, `app.js`, `data.js`, `styles.css` |
-| `site/cities_geo.json` | קואורדינטות יישובים למפה |
 | `cloud/` | בניית מסד לענן והעלאה ל-R2. ראו [cloud/README.md](../cloud/README.md) |
 | `../prices.db` | הנתונים. נבנה על ידי `il-prices update` |
 

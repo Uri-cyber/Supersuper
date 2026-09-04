@@ -157,9 +157,6 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 th{padding:6px 8px;font-weight:800;border-bottom:3px solid var(--ink);color:var(--muted);font-size:12px;text-align:right;white-space:nowrap}
 td{padding:8px;border-bottom:1px solid var(--div)}
 tbody tr:hover{background:#fff6d6}
-.map-box{position:relative;flex:none;width:200px;height:300px;border-radius:16px;background:#bfe9ff;border:3px solid var(--ink);overflow:hidden}
-.map-pin{position:absolute;transform:translate(-50%,-50%);border-radius:50%;border:3px solid var(--ink);cursor:pointer;animation:pop .5s ease-out both;transition:transform .15s}
-.map-pin:hover{transform:translate(-50%,-50%) scale(1.5);z-index:3}
 
 /* ---------- market ---------- */
 .mkt{background:var(--ink);color:#fff;min-height:70vh;padding:20px 24px 56px}
