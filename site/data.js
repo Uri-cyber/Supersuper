@@ -265,13 +265,9 @@ function SqliteApi(cfg) {
                      "WHERE product_fts MATCH ? LIMIT ?", [ftsQuery(text), limit]);
       rows.sort(function (a, b) { return b.n_stores - a.n_stores; });
     } catch (e) { rows = []; }
-    if (!rows.length) {
-      var words = text.split(/\s+/).filter(Boolean);
-      var where = words.map(function () { return "name LIKE ?"; }).join(" AND ") || "name LIKE ?";
-      var params = words.length ? words.map(function (w) { return "%" + w + "%"; }) : ["%" + text + "%"];
-      rows = await q("SELECT * FROM product_stats WHERE " + where + " ORDER BY n_stores DESC LIMIT ?",
-                     params.concat([limit]));
-    }
+    // אין נפילה חזרה ל-LIKE. כאן המסד נקרא דרך הרשת, וסריקה מלאה של
+    // 250 אלף שורות פירושה משיכה של חלק גדול מהקובץ - חיפוש שלא מסתיים.
+    // אינדקס ה-FTS מכסה כל שם מוצר, ולכן אם הוא לא מצא, באמת אין תוצאה.
     return rows.map(productBrief);
   }
 
