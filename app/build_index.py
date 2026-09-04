@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # גרסת האינדקס - שינוי כאן מאלץ בנייה מחדש
-INDEX_VERSION = "5"
+INDEX_VERSION = "6"
 
 # חלון הטריות: השוואות נעשות רק בין מחירים מאותו חלון זמן
 FRESH_DAYS = 7
@@ -170,70 +170,77 @@ def symbol_for(barcode, taken):
     return sym
 
 
-def build_market(conn, limit=120):
+def build_market(conn, series_limit=5000, tracked_limit=120):
     """
-    סדרה יומית ארצית למוצרים הנפוצים ביותר.
+    סדרה יומית ארצית למוצרים הנפוצים.
 
-    price_history שומרת רק שינויים, לכן משחזרים לכל יום את המצב המלא:
-    מחזיקים מיפוי סניף->מחיר ומעדכנים אותו לפי סדר התאריכים.
-    מחיר NULL בהיסטוריה = המוצר הפסיק להימכר באותו סניף, ולכן הוא יוצא מהחישוב.
+    price_history שומרת רק שינויים, ולכן משחזרים לכל יום את המצב המלא:
+    מחזיקים מיפוי סניף->מחיר, מעדכנים אותו לפי סדר התאריכים, ומצלמים בסוף כל יום.
+    מחיר NULL בהיסטוריה = המוצר הפסיק להימכר באותו סניף, והוא יוצא מהחישוב.
+
+    series_limit  - לכמה מוצרים נבנית סדרה יומית (הגרף בעמוד המוצר)
+    tracked_limit - כמה מוצרים מופיעים במסך הבורסה
+
+    כל ההיסטוריה של מוצר נשלפת בשאילתה אחת. הגרסה הקודמת הריצה שאילתה לכל
+    יום ולכל מוצר, וזה לא היה מסתיים בזמן סביר על אלפי מוצרים.
     """
-    log(f"בונה סדרות יומיות ל-{limit} המוצרים הנפוצים ביותר...")
+    log(f"בונה סדרות יומיות ל-{series_limit:,} מוצרים...")
     t0 = time.time()
     conn.execute("DELETE FROM market_daily")
     conn.execute("DELETE FROM market_products")
 
-    top = conn.execute(
+    top = [r[0] for r in conn.execute(
         """
         SELECT ps.barcode FROM product_stats ps
-        WHERE ps.name IS NOT NULL AND ps.name <> '' AND ps.n_stores >= 200
+        WHERE ps.name IS NOT NULL AND ps.name <> '' AND ps.n_stores >= 50
         ORDER BY ps.n_stores DESC, ps.gap_pct DESC LIMIT ?
         """,
-        (limit,),
-    ).fetchall()
+        (series_limit,),
+    )]
 
     taken = set()
     rows_out, prods = [], []
-    for rank, (barcode,) in enumerate(top, 1):
-        state = {}
-        days = {}
-        for chain, store_id, price, date in conn.execute(
-            "SELECT chain, store_id, price, date FROM price_history WHERE barcode = ? ORDER BY date",
-            (barcode,),
+    done = 0
+    for rank, barcode in enumerate(top, 1):
+        state, series = {}, []
+        cur_date = None
+        for date, chain, store_id, price in conn.execute(
+            "SELECT date, chain, store_id, price FROM price_history WHERE barcode = ? "
+            "ORDER BY date", (barcode,),
         ):
+            if cur_date is not None and date != cur_date:
+                vals = sorted(state.values())
+                if vals:
+                    series.append((barcode, cur_date, len(vals), vals[0], vals[-1],
+                                   median_of(vals), sum(vals) / len(vals)))
+            cur_date = date
             key = (chain, store_id)
             if price is None:
                 state.pop(key, None)
             else:
                 state[key] = price
-            days[date] = None
-        # מריצים שוב לפי סדר התאריכים ומצלמים מצב בסוף כל יום
-        state = {}
-        for date in sorted(days):
-            for chain, store_id, price in conn.execute(
-                "SELECT chain, store_id, price FROM price_history WHERE barcode = ? AND date = ?",
-                (barcode, date),
-            ):
-                key = (chain, store_id)
-                if price is None:
-                    state.pop(key, None)
-                else:
-                    state[key] = price
+        if cur_date is not None:
             vals = sorted(state.values())
-            if not vals:
-                continue
-            rows_out.append((barcode, date, len(vals), vals[0], vals[-1],
-                             median_of(vals), sum(vals) / len(vals)))
-        prods.append((barcode, symbol_for(barcode, taken), rank))
-        if len(rows_out) > 20000:
+            if vals:
+                series.append((barcode, cur_date, len(vals), vals[0], vals[-1],
+                               median_of(vals), sum(vals) / len(vals)))
+        rows_out.extend(series)
+        if rank <= tracked_limit:
+            prods.append((barcode, symbol_for(barcode, taken), rank))
+        done += 1
+        if len(rows_out) >= 50000:
             conn.executemany("INSERT OR REPLACE INTO market_daily VALUES (?,?,?,?,?,?,?)", rows_out)
             rows_out = []
+        if done % 1000 == 0:
+            log(f"    {done:,}/{len(top):,} מוצרים, {round(time.time() - t0)} שניות")
     if rows_out:
         conn.executemany("INSERT OR REPLACE INTO market_daily VALUES (?,?,?,?,?,?,?)", rows_out)
     conn.executemany("INSERT OR REPLACE INTO market_products VALUES (?,?,?)", prods)
     conn.commit()
     n = conn.execute("SELECT COUNT(*) FROM market_daily").fetchone()[0]
-    log(f"  {len(prods)} מוצרים, {n:,} נקודות יומיות, {round(time.time() - t0)} שניות")
+    m = conn.execute("SELECT COUNT(DISTINCT barcode) FROM market_daily").fetchone()[0]
+    log(f"  {m:,} מוצרים עם גרף, {len(prods)} בבורסה, {n:,} נקודות, "
+        f"{round(time.time() - t0)} שניות")
 
 
 def build_chain_stats(conn):

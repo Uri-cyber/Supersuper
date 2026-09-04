@@ -178,7 +178,9 @@ def main():
         return 1
 
     log(f"מקור: {SRC_DB} ({human(os.path.getsize(SRC_DB))})")
-    sizes = [args.page_size] if args.page_size else [4096, 1024]
+    # ברירת המחדל 16384: הספרייה בצד הלקוח דורשת שגודל החתיכה יהיה שווה
+    # לגודל הדף, ובכתובת r2.dev שההשהיה שלה גבוהה עדיף דף גדול ופחות בקשות
+    sizes = [args.page_size] if args.page_size else [16384]
     for ps in sizes:
         log(f"\nבונה מסד עם דף {ps} בתים:")
         build(ps, os.path.join(BASE_DIR, f"mehiron-{ps}.db"), args.all_prices)
