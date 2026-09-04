@@ -63,7 +63,7 @@ pre{background:#14151a;color:#c9ccd6;padding:12px;border-radius:10px;overflow:au
   <pre id="log">ממתין…</pre>
 </div>
 
-<script src="/vendor/index.js"></script>
+<script src="../site/vendor/index.js"></script>
 <script>
 // UMD: הספרייה מציבה את createDbWorker על window. הקבצים מוגשים מקומית
 // כי דפדפן חוסם יצירת Worker מכתובת ממקור אחר.
@@ -132,8 +132,8 @@ $("run").onclick = async () => {
     const t0 = performance.now();
     const worker = await createDbWorker(
       [{ from: "inline", config: { serverMode: "full", url: location.origin + "/" + dbFile, requestChunkSize: chunk } }],
-      location.origin + "/vendor/sqlite.worker.js",
-      location.origin + "/vendor/sql-wasm.wasm"
+      location.origin + "/../site/vendor/sqlite.worker.js",
+      location.origin + "/../site/vendor/sql-wasm.wasm"
     );
     const initStats = await stats();
     log(`אתחול: ${(performance.now()-t0).toFixed(0)} מ"ש · ${initStats.requests} בקשות · ${kb(initStats.bytes)}`);

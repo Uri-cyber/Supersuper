@@ -27,3 +27,4 @@ cloud/.upload_state.json
 site/mehiron.db
 site/_range_server.py
 site/*.log
+cloud/vendor/
