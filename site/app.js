@@ -765,7 +765,7 @@ function screenScan() {
   return '<div class="wrap" style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">' +
     '<div style="flex:1 1 320px;display:flex;flex-direction:column;gap:16px">' +
       '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);width:fit-content;transform:rotate(-2deg);font-weight:900">▦ בדיקת קבלה</div>' +
-      '<h1 style="font-size:38px;font-weight:900;line-height:1.1">כמה שילמתם <span style="color:var(--red)">יותר מדי</span> בקנייה האחרונה?</h1>' +
+      '<h1 style="font-size:38px;font-weight:900;line-height:1.1">בואו לבדוק אם יצאתם <span style="color:var(--red)">פראיירים</span></h1>' +
       '<p class="muted" style="font-size:16px;line-height:1.6">צלמו את הקבלה או הדביקו את שורותיה, ונשווה כל פריט מול המחיר שלו בכל סניף - ונראה לכם איפה בעיר שלכם אותו סל זול יותר.</p>' +
       '<div style="display:flex;flex-direction:column;gap:10px">' +
         stepPill(1, "מצלמים את הקבלה או מדביקים את שורותיה") + stepPill(2, "עוברים על מה שזוהה ומתקנים") + stepPill(3, "רואים איפה אותו סל זול יותר, בעיר שלכם") +
