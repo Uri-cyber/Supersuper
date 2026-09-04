@@ -222,7 +222,7 @@ function screenHome() {
     var d = h.deal;
     deal = '<section class="wrap" style="margin-top:-56px;padding-bottom:0">' +
       '<div class="deal" data-open="' + esc(d.barcode) + '">' +
-      '<div class="deal-shine"></div>' +
+      '<div class="deal-clip"><div class="deal-shine"></div></div>' +
       '<div style="position:absolute;top:-14px;right:22px;background:var(--red);border:3px solid var(--ink);color:#fff;font-size:12px;font-weight:900;padding:3px 12px;border-radius:999px;transform:rotate(-3deg)">⚡ הפער של היום</div>' +
       '<div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:6px">' +
         '<div style="font-size:13px;font-weight:700;color:var(--purple-tint)">' + num(d.stores) + " סניפים · " + num(d.chains) + " רשתות</div>" +
@@ -282,7 +282,7 @@ function screenHome() {
         '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים עודכנו ב־" + dateHe(m.latest_date) + "</div>" +
         "<h1>איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הביצים</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</h1>" +
         '<p style="margin:0;color:var(--light-dark);font-size:18px;text-align:center;max-width:560px">חפשו מוצר ותראו את המחיר בכל סניף בארץ, לפי הקבצים שהרשתות מחויבות לפרסם.</p>' +
-        '<div style="position:relative;width:100%">' +
+        '<div class="searchwrap">' +
           '<div class="searchbox' + (S.focused ? " on" : "") + '">' +
             '<span style="font-size:24px;font-weight:900">⌕</span>' +
             '<input id="q" value="' + esc(S.query) + '" placeholder="חפשו מוצר, ברקוד או מותג…" autocomplete="off">' +
