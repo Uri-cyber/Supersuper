@@ -36,7 +36,7 @@ button{cursor:pointer}
 @keyframes wiggle{0%,100%{transform:rotate(-2deg)}50%{transform:rotate(2deg)}}
 @keyframes meter{from{width:0}}
 @keyframes confetti{0%{transform:translate(0,0) rotate(0);opacity:1}100%{transform:translate(var(--dx),var(--dy)) rotate(720deg);opacity:0}}
-@keyframes marquee-y{0%,19.9%{transform:translateY(0)}20%,39.9%{transform:translateY(-100%)}40%,59.9%{transform:translateY(-200%)}60%,79.9%{transform:translateY(-300%)}80%,100%{transform:translateY(-400%)}}
+@keyframes marquee-y{0%,19.9%{transform:translateY(0)}20%,39.9%{transform:translateY(-20%)}40%,59.9%{transform:translateY(-40%)}60%,79.9%{transform:translateY(-60%)}80%,100%{transform:translateY(-80%)}}
 @keyframes rotfade{0%,84%{opacity:1}92%{opacity:0}100%{opacity:1}}
 @keyframes shine{0%{transform:translateX(-120%) skewX(-20deg)}100%{transform:translateX(220%) skewX(-20deg)}}
 @keyframes tear{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0 0 0 0)}}
@@ -83,9 +83,27 @@ h1,h2,h3{margin:0;letter-spacing:-.02em}
 .spinner{display:inline-block;width:16px;height:16px;border:3px solid var(--div2);border-top-color:var(--ink);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px}
 .loading{padding:60px 20px;text-align:center;color:var(--muted);font-weight:700}
 
+/* ---------- skeleton ---------- */
+@keyframes shimmer{0%{opacity:.35}50%{opacity:.6}100%{opacity:.35}}
+.sk{background:#2b2d36;border-radius:10px;animation:shimmer 1.4s ease-in-out infinite}
+.sk-wrap{display:flex;flex-direction:column}
+.sk-hero{background:var(--ink);padding:36px 24px 48px;display:flex;flex-direction:column;align-items:center;gap:14px}
+.sk-badge{width:220px;height:26px;border-radius:999px}
+.sk-title{width:min(420px,80%);height:44px}
+.sk-title.short{width:min(300px,60%)}
+.sk-search{width:min(760px,92%);height:72px;border-radius:20px;background:#3a3c45}
+.sk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px;padding:24px;max-width:1160px;margin:0 auto;width:100%}
+.sk-card{background:#fff;border:3px solid var(--ink);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.sk-card .sk{background:#e6e3d8}
+.sk-bar{height:8px}
+.sk-line{height:18px}
+.sk-line.short{width:60%}
+.sk-pill{height:30px;width:70%;border-radius:8px}
+
 /* ---------- home ---------- */
 .hero{background:var(--ink);color:#fff;padding:36px 24px 96px;position:relative;overflow:hidden}
-.hero-layer{position:absolute;transition:transform .3s ease-out;pointer-events:none}
+.hero-layer{position:absolute;transition:transform .3s ease-out;pointer-events:none;opacity:.7}
+.hero-inner{position:relative;z-index:3}
 .hero-inner{position:relative;width:100%;max-width:820px;margin:0 auto;display:flex;flex-direction:column;align-items:center;gap:22px}
 .hero h1{font-size:56px;font-weight:900;letter-spacing:-.03em;text-align:center;line-height:1.02}
 .rot{display:inline-block;height:1.02em;overflow:hidden;vertical-align:bottom;color:var(--green)}
@@ -111,8 +129,8 @@ h1,h2,h3{margin:0;letter-spacing:-.02em}
 .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
 .pcard{background:#fff;border:3px solid var(--ink);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:12px;cursor:pointer;transition:transform .15s,box-shadow .15s;box-shadow:0 0 0 var(--ink);text-align:right}
 .pcard:hover{transform:translate(-4px,-4px);box-shadow:6px 6px 0 var(--ink)}
-.pimg{height:120px;border-radius:14px;display:grid;place-items:center;color:var(--ink);font-size:11px;position:relative;overflow:hidden}
-.pimg::before{content:"";position:absolute;inset:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.35) 0 8px,transparent 8px 16px)}
+/* פס זיהוי צבעוני במקום ריבוע תמונה, כי לרשתות אין תמונות מוצר */
+.pbar{height:8px;border-radius:6px;border:2px solid var(--ink)}
 
 /* ---------- product ---------- */
 .prod-wrap{display:flex;flex-wrap:wrap;gap:20px;padding:20px 24px 56px;align-items:flex-start;max-width:1280px;margin:0 auto}
@@ -174,9 +192,8 @@ html,body{max-width:100%;overflow-x:hidden}
 @media (max-width:820px){
   .hero h1{font-size:34px}
   .hero{padding:24px 16px 84px}
-  /* צורות הרקע מפריעות לקריאות הכותרת במסך צר */
-  .hero-layer{opacity:.45}
-  .hero-inner{z-index:2}
+  /* במסך צר הצורות עולות על הכותרת, ולכן מוחלשות מאוד */
+  .hero-layer{opacity:.28}
   .wrap{padding:16px}
   .tagline{display:none}
   .prod-wrap{padding:16px 12px 90px}
