@@ -306,15 +306,36 @@ def build_search_index(conn):
 
 
 def needs_build(conn):
+    """
+    האם צריך לבנות את האינדקס מחדש.
+
+    לא מספיק להשוות את מספר השורות ב-prices. המפתח שם הוא
+    (chain, store_id, barcode) והקליטה כותבת ב-ON CONFLICT DO UPDATE, ולכן
+    ביום שבו אותם סניפים פרסמו את אותו קטלוג מספר השורות זהה בדיוק בזמן
+    שכל המחירים השתנו. בדיקה על המספר בלבד הייתה מדלגת על הבנייה, והאתר
+    היה מקבל מחירים של היום עם סיכומים של אתמול.
+
+    לכן נבדק גם התאריך האחרון שבנתונים מול מה שהאינדקס בנוי עליו.
+    """
     try:
         row = conn.execute("SELECT value FROM app_meta WHERE key = 'index_version'").fetchone()
     except sqlite3.OperationalError:
         return True
     if not row or row[0] != INDEX_VERSION:
         return True
+
     row = conn.execute("SELECT value FROM app_meta WHERE key = 'index_prices_rows'").fetchone()
     current = conn.execute("SELECT COUNT(*) FROM prices").fetchone()[0]
-    return not row or row[0] != str(current)
+    if not row or row[0] != str(current):
+        return True
+
+    # התאריך האחרון בנתונים עצמם, מול זה שהאינדקס נבנה לפיו
+    newest = conn.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    row = conn.execute("SELECT value FROM app_meta WHERE key = 'index_latest_date'").fetchone()
+    if newest is not None and (not row or row[0] != str(newest)):
+        return True
+
+    return False
 
 
 def main(force=False):
@@ -346,6 +367,11 @@ def main(force=False):
     conn.execute(
         "INSERT OR REPLACE INTO app_meta VALUES ('index_built_at', ?)",
         (time.strftime("%Y-%m-%d %H:%M"),),
+    )
+    newest = conn.execute("SELECT MAX(date) FROM prices").fetchone()[0]
+    conn.execute(
+        "INSERT OR REPLACE INTO app_meta VALUES ('index_latest_date', ?)",
+        (str(newest) if newest is not None else "",),
     )
     conn.commit()
     log("האינדקס נבנה בהצלחה.")

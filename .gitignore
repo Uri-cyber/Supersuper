@@ -28,3 +28,10 @@ site/mehiron.db
 site/_range_server.py
 site/*.log
 cloud/vendor/
+
+# פלט של הריצה היומית. מקומי למחשב הזה.
+cloud/logs/
+cloud/last_run.json
+cloud/size_history.json
+cloud/.daily.lock
+cloud/mehiron-*.xml
