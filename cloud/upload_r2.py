@@ -96,6 +96,86 @@ def list_db_objects(cfg):
     return sorted(out, key=lambda x: x[1])
 
 
+GB = 1024 ** 3
+
+
+def bucket_usage(cfg):
+    """
+    כל האובייקטים בדלי עם הגודל שלהם: [(key, size)], וגם הסכום.
+
+    R2 מחזירה את השדות בסדר Key, Size, LastModified. לא מסתמכים על הסדר -
+    כל אובייקט נחתך בנפרד ורק אז נשלפים ממנו השדות.
+    """
+    out, token = [], None
+    while True:
+        params = [("list-type", 2)]
+        if token:
+            params.append(("continuation-token", token))
+        body = signed_request(cfg, "GET", "", params=params).read().decode("utf-8", "replace")
+        for block in re.findall(r"<Contents>(.*?)</Contents>", body, re.S):
+            k = re.search(r"<Key>([^<]+)</Key>", block)
+            z = re.search(r"<Size>(\d+)</Size>", block)
+            if k and z:
+                out.append((k.group(1), int(z.group(1))))
+        if "<IsTruncated>true</IsTruncated>" not in body:
+            break
+        m = re.search(r"<NextContinuationToken>([^<]+)</NextContinuationToken>", body)
+        if not m:
+            break
+        token = m.group(1)
+    return out, sum(z for _k, z in out)
+
+
+def open_multipart_bytes(cfg):
+    """
+    חלקים של העלאות שנקטעו. הם נספרים באחסון עד שמבטלים אותן, ולכן דלי
+    שנראה תקין ברשימת הקבצים יכול בכל זאת להיות מלא.
+    """
+    body = signed_request(cfg, "GET", "", params=[("uploads", "")]).read().decode("utf-8", "replace")
+    total, n = 0, 0
+    for m in re.finditer(r"<Upload>(.*?)</Upload>", body, re.S):
+        k = re.search(r"<Key>([^<]+)</Key>", m.group(1))
+        u = re.search(r"<UploadId>([^<]+)</UploadId>", m.group(1))
+        if not (k and u):
+            continue
+        n += 1
+        try:
+            pb = signed_request(cfg, "GET", k.group(1),
+                                params=[("uploadId", u.group(1))]).read().decode("utf-8", "replace")
+            total += sum(int(x) for x in re.findall(r"<Size>(\d+)</Size>", pb))
+        except Exception:  # noqa: BLE001
+            pass
+    return n, total
+
+
+def check_quota(cfg, incoming_bytes, limit_gb):
+    """
+    בודק לפני ההעלאה שהיא לא תחרוג מהגבול.
+
+    בשיא ההעלאה קיימים בדלי גם הקובץ הישן וגם החדש, כי הניקוי מתרחש רק
+    אחרי שההעלאה הצליחה. לכן החישוב הוא על השיא ולא על המצב הסופי.
+    """
+    objs, used = bucket_usage(cfg)
+    n_open, open_bytes = open_multipart_bytes(cfg)
+    peak = used + open_bytes + incoming_bytes
+    log("")
+    log("תפוסה בדלי %s:" % cfg["bucket"])
+    for k, z in sorted(objs):
+        log("  %-44s %5.2f GB" % (k, z / GB))
+    if n_open:
+        log("  (%d העלאות שנקטעו תופסות %.2f GB)" % (n_open, open_bytes / GB))
+    log("  בשימוש כעת   %14s בתים = %.2f GB" % ("{:,}".format(used + open_bytes), (used + open_bytes) / GB))
+    log("  הקובץ החדש   %14s בתים = %.2f GB" % ("{:,}".format(incoming_bytes), incoming_bytes / GB))
+    log("  שיא צפוי     %14s בתים = %.2f GB   (גבול: %.2f GB)" % ("{:,}".format(peak), peak / GB, limit_gb))
+    if peak > limit_gb * GB:
+        log("")
+        log("ההעלאה נעצרה: היא הייתה מביאה את הדלי ל-%.2f GB, מעל הגבול שהוגדר." % (peak / GB))
+        log("אפשר למחוק גרסה ישנה בלוח הבקרה של R2, או להריץ שוב עם --max-gb גבוה יותר.")
+        return False
+    log("  נשאר מרווח של %.2f GB מתחת לגבול." % ((limit_gb * GB - peak) / GB))
+    return True
+
+
 def prune_old(cfg, keep_key, keep=1):
     """
     מוחק גרסאות ישנות, ומשאיר את החדשה ועוד אחת.
@@ -330,6 +410,8 @@ def main():
     ap.add_argument("--public-base", default=None,
                     help="הכתובת הציבורית של הדלי, לעדכון אוטומטי של site/config.js")
     ap.add_argument("--no-prune", action="store_true", help="לא למחוק גרסאות ישנות")
+    ap.add_argument("--max-gb", type=float, default=9.0,
+                    help="גבול תפוסה בדלי בג'יגה. ההעלאה נעצרת אם השיא יחרוג ממנו")
     args = ap.parse_args()
 
     if not os.path.exists(args.file):
@@ -341,6 +423,8 @@ def main():
     key = args.key or f"mehiron-{db_version(args.file)}.db"
     base = args.public_base or cfg.get("public_base")
     try:
+        if not check_quota(cfg, os.path.getsize(args.file), args.max_gb):
+            return 1
         upload(cfg, args.file, key)
         if base:
             update_site_config(base.rstrip("/") + "/" + key)
@@ -350,6 +434,10 @@ def main():
         if not args.no_prune:
             log("\nמנקה גרסאות ישנות בדלי:")
             prune_old(cfg, key, keep=1)
+        _objs, after = bucket_usage(cfg)
+        log("")
+        log("תפוסה סופית: %.2f GB מתוך גבול של %.2f GB (המכסה החינמית היא 10 GB)."
+            % (after / GB, args.max_gb))
     except urllib.error.HTTPError as e:
         log(f"\nשגיאה מהשרת: {e.code} {e.reason}")
         body = e.read().decode("utf-8", "replace")[:600]
