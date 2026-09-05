@@ -292,7 +292,7 @@ function screenHome() {
       '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none">₪</div>' +
       '<div class="hero-inner">' +
         '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים עודכנו ב־" + dateHe(m.latest_date) + "</div>" +
-        "<h1>איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הביצים</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</h1>" +
+        "<h1>איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הלחם</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</h1>" +
         '<p style="margin:0;color:var(--light-dark);font-size:18px;text-align:center;max-width:560px">חפשו מוצר ותראו את המחיר בכל סניף בארץ, לפי הקבצים שהרשתות מחויבות לפרסם.</p>' +
         '<div class="searchwrap">' +
           '<div class="searchbox' + (S.focused ? " on" : "") + '">' +
