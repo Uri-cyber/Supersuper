@@ -51,7 +51,7 @@ function prettyName(s) {
     .trim();
 }
 
-var REPORT_TO = "meiriuri@gmail.com";
+var REPORT_TO = "oneteeproject@gmail.com";
 
 /* קישור דיווח על טעות.
 
