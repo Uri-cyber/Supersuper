@@ -289,6 +289,15 @@ def publish(new_key):
     log("=" * 60)
     log("5/5 מפרסם לאתר")
     log("=" * 60)
+    # הריצה דוחפת ל-main. אם מישהו השאיר ענף עבודה מסומן, הדחיפה הייתה
+    # מעלה אליו את כל מה שיש בו - כלומר ממזגת עבודה שלא נבדקה, בשקט,
+    # בשעה שאיש לא ליד המחשב. עדיף לוותר על פרסום היום.
+    br = git(["rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+    if br != "main":
+        return False, (f"הענף המסומן הוא {br} ולא main. הקובץ עלה לענן, "
+                       "אבל לא פורסם לאתר כדי לא לדחוף עבודה שלא נבדקה. "
+                       "אחרי חזרה ל-main אפשר להריץ שוב.")
+
     r = git(["add", "site/config.js"])
     if r.returncode:
         return False, "git add נכשל: " + (r.stderr or "").strip()[:200]
