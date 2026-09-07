@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # גרסת האינדקס - שינוי כאן מאלץ בנייה מחדש
-INDEX_VERSION = "6"
+INDEX_VERSION = "7"
 
 # חלון הטריות: השוואות נעשות רק בין מחירים מאותו חלון זמן
 FRESH_DAYS = 7
@@ -170,76 +170,99 @@ def symbol_for(barcode, taken):
     return sym
 
 
-def build_market(conn, series_limit=5000, tracked_limit=120):
+def build_market(conn, tracked_limit=120):
     """
-    סדרה יומית ארצית למוצרים הנפוצים.
+    סדרה יומית ארצית לכל מוצר שיש לו היסטוריה.
 
     price_history שומרת רק שינויים, ולכן משחזרים לכל יום את המצב המלא:
-    מחזיקים מיפוי סניף->מחיר, מעדכנים אותו לפי סדר התאריכים, ומצלמים בסוף כל יום.
-    מחיר NULL בהיסטוריה = המוצר הפסיק להימכר באותו סניף, והוא יוצא מהחישוב.
+    מחזיקים מיפוי סניף->מחיר, מעדכנים אותו לפי סדר התאריכים, ומצלמים בסוף
+    כל יום. מחיר NULL פירושו שהמוצר הפסיק להימכר באותו סניף, והוא יוצא
+    מהחישוב.
 
-    series_limit  - לכמה מוצרים נבנית סדרה יומית (הגרף בעמוד המוצר)
-    tracked_limit - כמה מוצרים מופיעים במסך הבורסה
+    נשמרת שורה רק ליום שבו משהו השתנה. יום ללא שינוי אינו מייצר שורה, וזה
+    לא חוסר: המחיר פשוט נשאר מה שהיה, והתצוגה גוררת אותו קדימה. אחסון של
+    שורה לכל מוצר ולכל יום היה מוסיף כ-33 מיליון שורות בשנה במקום כ-1.3
+    מיליון, בלי להוסיף שום מידע.
 
-    כל ההיסטוריה של מוצר נשלפת בשאילתה אחת. הגרסה הקודמת הריצה שאילתה לכל
-    יום ולכל מוצר, וזה לא היה מסתיים בזמן סביר על אלפי מוצרים.
+    סריקה אחת מסודרת לפי (מוצר, תאריך) על פני כל הטבלה. הגרסה הקודמת הריצה
+    שאילתה נפרדת לכל מוצר, מה שהגביל אותה ל-5,000 המוצרים הנפוצים; נמדד
+    שסריקה אחת עוברת 17 מיליון שורות ב-40 שניות ומכסה את כולם.
+
+    tracked_limit - כמה מוצרים מופיעים ברשימת הבורסה ובטיקר
     """
-    log(f"בונה סדרות יומיות ל-{series_limit:,} מוצרים...")
+    log("בונה סדרות יומיות לכל המוצרים...")
     t0 = time.time()
     conn.execute("DELETE FROM market_daily")
     conn.execute("DELETE FROM market_products")
 
-    top = [r[0] for r in conn.execute(
+    def flush(buf):
+        if buf:
+            conn.executemany("INSERT OR REPLACE INTO market_daily VALUES (?,?,?,?,?,?,?)", buf)
+
+    rows_out = []
+    total = prods = 0
+    cur_bc = cur_date = None
+    state = {}
+
+    def snapshot():
+        """סוגר את היום הפתוח ומוסיף לו שורה, אם דיווח עליו לפחות סניף אחד."""
+        if cur_bc is None or cur_date is None:
+            return 0
+        vals = sorted(state.values())
+        if not vals:
+            return 0
+        rows_out.append((cur_bc, cur_date, len(vals), vals[0], vals[-1],
+                         median_of(vals), sum(vals) / len(vals)))
+        return 1
+
+    for bc, date, chain, store_id, price in conn.execute(
+        "SELECT barcode, date, chain, store_id, price FROM price_history "
+        "ORDER BY barcode, date"
+    ):
+        if bc != cur_bc:
+            total += snapshot()
+            state = {}
+            cur_bc, cur_date = bc, None
+            prods += 1
+            if prods % 25000 == 0:
+                log(f"    {prods:,} מוצרים, {total:,} נקודות, {round(time.time() - t0)} שניות")
+                flush(rows_out)
+                rows_out = []
+        elif date != cur_date:
+            total += snapshot()
+        cur_date = date
+        key = (chain, store_id)
+        if price is None:
+            state.pop(key, None)
+        else:
+            state[key] = price
+    total += snapshot()
+    flush(rows_out)
+    conn.commit()
+
+    # רשימת הבורסה: הנפוצים ביותר, ורק כאלה שבאמת יש להם סדרה להציג
+    taken = set()
+    prods_out, rank = [], 0
+    for (barcode,) in conn.execute(
         """
         SELECT ps.barcode FROM product_stats ps
         WHERE ps.name IS NOT NULL AND ps.name <> '' AND ps.n_stores >= 50
-        ORDER BY ps.n_stores DESC, ps.gap_pct DESC LIMIT ?
-        """,
-        (series_limit,),
-    )]
-
-    taken = set()
-    rows_out, prods = [], []
-    done = 0
-    for rank, barcode in enumerate(top, 1):
-        state, series = {}, []
-        cur_date = None
-        for date, chain, store_id, price in conn.execute(
-            "SELECT date, chain, store_id, price FROM price_history WHERE barcode = ? "
-            "ORDER BY date", (barcode,),
-        ):
-            if cur_date is not None and date != cur_date:
-                vals = sorted(state.values())
-                if vals:
-                    series.append((barcode, cur_date, len(vals), vals[0], vals[-1],
-                                   median_of(vals), sum(vals) / len(vals)))
-            cur_date = date
-            key = (chain, store_id)
-            if price is None:
-                state.pop(key, None)
-            else:
-                state[key] = price
-        if cur_date is not None:
-            vals = sorted(state.values())
-            if vals:
-                series.append((barcode, cur_date, len(vals), vals[0], vals[-1],
-                               median_of(vals), sum(vals) / len(vals)))
-        rows_out.extend(series)
-        if rank <= tracked_limit:
-            prods.append((barcode, symbol_for(barcode, taken), rank))
-        done += 1
-        if len(rows_out) >= 50000:
-            conn.executemany("INSERT OR REPLACE INTO market_daily VALUES (?,?,?,?,?,?,?)", rows_out)
-            rows_out = []
-        if done % 1000 == 0:
-            log(f"    {done:,}/{len(top):,} מוצרים, {round(time.time() - t0)} שניות")
-    if rows_out:
-        conn.executemany("INSERT OR REPLACE INTO market_daily VALUES (?,?,?,?,?,?,?)", rows_out)
-    conn.executemany("INSERT OR REPLACE INTO market_products VALUES (?,?,?)", prods)
+        ORDER BY ps.n_stores DESC, ps.gap_pct DESC
+        """
+    ):
+        if conn.execute("SELECT 1 FROM market_daily WHERE barcode=? LIMIT 1",
+                        (barcode,)).fetchone() is None:
+            continue
+        rank += 1
+        prods_out.append((barcode, symbol_for(barcode, taken), rank))
+        if rank >= tracked_limit:
+            break
+    conn.executemany("INSERT OR REPLACE INTO market_products VALUES (?,?,?)", prods_out)
     conn.commit()
+
     n = conn.execute("SELECT COUNT(*) FROM market_daily").fetchone()[0]
     m = conn.execute("SELECT COUNT(DISTINCT barcode) FROM market_daily").fetchone()[0]
-    log(f"  {m:,} מוצרים עם גרף, {len(prods)} בבורסה, {n:,} נקודות, "
+    log(f"  {m:,} מוצרים עם גרף, {len(prods_out)} בבורסה, {n:,} נקודות, "
         f"{round(time.time() - t0)} שניות")
 
 

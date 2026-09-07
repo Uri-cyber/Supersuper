@@ -413,11 +413,28 @@ function screenProduct() {
     var vals = hs.map(function (r) { return r.median; });
     var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     var pad = (hi - lo) * 0.15 || 1; lo -= pad; hi += pad;
-    var X = function (i) { return 40 + i / (hs.length - 1) * 550; };
+    // הציר לפי תאריך אמיתי ולא לפי מספר הנקודה. נשמרת שורה רק ליום שבו
+    // המחיר השתנה, ולכן מרווח של חודש בין שתי נקודות היה נראה זהה למרווח
+    // של יום - וגרף כזה משקר על הקצב.
+    var dayOf = function (iso) { return Date.parse(iso + "T00:00:00Z") / 86400000; };
+    var d0 = dayOf(hs[0].date), dN = dayOf(hs[hs.length - 1].date);
+    var span = (dN - d0) || 1;
+    var X = function (i) { return 40 + (dayOf(hs[i].date) - d0) / span * 550; };
     var Y = function (v) { return 20 + (1 - (v - lo) / (hi - lo)) * 150; };
     // הקו מצויר במקטעים. כל מקטע שנוגע בנקודה דלילה מצויר מקווקו וחיוור,
     // כדי שלא ייקרא כמגמה ארצית.
+    // קו מדרגות ולא קו ישר בין נקודות. מחיר לא זוחל בהדרגה בין שני
+    // תאריכים - הוא נשאר מה שהיה עד שהוא קופץ. אלכסון היה ממציא מחירי
+    // ביניים שמעולם לא היו, וגם עונה לא נכון על "כמה זה עלה ביום שלישי".
     var pt = function (i) { return X(i).toFixed(1) + "," + Y(hs[i].median).toFixed(1); };
+    var stepPts = function (a, b) {
+      var out = [];
+      for (var i = a; i <= b; i++) {
+        if (i > a) out.push(X(i).toFixed(1) + "," + Y(hs[i - 1].median).toFixed(1));
+        out.push(pt(i));
+      }
+      return out;
+    };
     var runs = [];
     hs.forEach(function (r, i) {
       var last = runs[runs.length - 1];
@@ -431,8 +448,7 @@ function screenProduct() {
         if (a > 0) a -= 1;
         if (b < hs.length - 1) b += 1;
       }
-      var seg = [];
-      for (var i = a; i <= b; i++) seg.push(pt(i));
+      var seg = stepPts(a, b);
       if (seg.length > 1) {
         pts += '<polyline points="' + seg.join(" ") + '" fill="none" ' +
           (run.sparse
@@ -470,7 +486,9 @@ function screenProduct() {
             'פחות מ־' + MIN_STORES + ' סניפים</span>' +
             '<span style="display:inline-flex;align-items:center;gap:6px"><svg width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-width="4"/></svg>כיסוי רחב</span></div>'
         : "") +
-      '<div class="note">החציון מחושב מכל הסניפים שדיווחו על המוצר באותו יום. ימים שבהם הרשתות לא פרסמו קובץ אינם מופיעים.' +
+      '<div class="note">החציון מחושב מכל הסניפים שדיווחו על המוצר באותו יום. ' +
+      'הקו מוחזק ישר עד לשינוי הבא, כי מחיר נשאר על כנו עד שהוא משתנה - ' +
+      'נקודה נשמרת רק ליום שבו משהו זז.' +
       (nSparse
         ? " " + nSparse + " מתוך " + hs.length + " הנקודות מבוססות על " + sparseMax +
           " סניפים לכל היותר, בין " + dateHe(sparseFrom) + " ל־" + dateHe(sparseTo) +
