@@ -401,7 +401,16 @@ def import_dumps(conn, delete_after=True, workers=4):
     price_files = sorted(((c, p) for c, p in files if is_price_full_file(p)), key=lambda cp: file_sort_key(cp[1]))
     other = [p for c, p in files if not is_store_file(p) and not is_price_full_file(p)]
 
-    print(f"\nמעבד {len(store_files)} קובצי סניפים ו-{len(price_files)} קובצי מחירים...")
+    # הנפח נמדד כאן ולא אחרי הקליטה, כי כל קובץ נמחק ברגע שנקלט.
+    # זו ההזדמנות היחידה לדעת כמה באמת ירד מהרשתות באותו יום.
+    downloaded = 0
+    for _c, p in files:
+        try:
+            downloaded += os.path.getsize(p)
+        except OSError:
+            pass
+    print(f"\nירדו {len(files)} קבצים, {downloaded / 1e6:,.0f} מגה בסך הכול.")
+    print(f"מעבד {len(store_files)} קובצי סניפים ו-{len(price_files)} קובצי מחירים...")
     conn.execute("PRAGMA synchronous=OFF")
     stores_total = prices_total = 0
 
