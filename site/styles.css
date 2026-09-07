@@ -261,3 +261,13 @@ html,body{max-width:100%;overflow-x:hidden}
 #site-legal-footer a:focus-visible{
   outline:3px solid var(--ink);outline-offset:3px;border-radius:3px;color:var(--ink);
 }
+
+/* קישור דיווח על טעות */
+.report-link{
+  font-size:12px;font-weight:700;text-decoration:underline;color:inherit;
+  opacity:.85;white-space:nowrap;
+}
+.report-link:hover{opacity:1}
+.report-link:focus-visible{
+  outline:3px solid currentColor;outline-offset:3px;border-radius:3px;opacity:1;
+}

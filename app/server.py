@@ -282,6 +282,55 @@ def api_meta(_p):
     return {"meta": m, "cities": city_list()}
 
 
+# ------------------------------------------------------------------ סינון חריגים
+# פער עצום נובע לרוב מטעות במקור ולא ממחיר אמיתי: ברקוד שמשויך לפריט אחר,
+# מחיר ליחידה מול מחיר למארז, או ספרה שנפלה. פריט כזה שמוצג ככותרת האתר
+# הוא אמירה פומבית וחריפה על רשת, שמבוססת על נתון שכנראה שגוי.
+#
+# הסינון חל רק על הכותרות. בחיפוש הרגיל המוצר ממשיך להופיע עם כל הנתונים
+# שפורסמו, כי הסתרה שלו הייתה הסתרת מידע שהרשת עצמה פרסמה.
+LOW_VS_MEDIAN = 0.40      # זול מ-40% מהחציון: כנראה לא אותו פריט
+HIGH_VS_MEDIAN = 2.5      # יקר מפי 2.5 מהחציון: אותו חשד
+MAX_DATE_GAP_DAYS = 3     # שני קצוות שנמדדו בימים רחוקים אינם השוואה
+
+
+def _headline_reject(brief):
+    """
+    מחזיר את סיבת הפסילה, או None אם הפריט ראוי להופיע ככותרת.
+    מוחזרת סיבה ולא רק אמת או שקר, כדי שאפשר יהיה לספור לפי סוג.
+    """
+    med = brief.get("median")
+    lo, hi = brief.get("min"), brief.get("max")
+    if not med or lo is None or hi is None:
+        return "חסר נתון"
+    if lo < med * LOW_VS_MEDIAN:
+        return "המחיר הזול נמוך מדי ביחס לחציון"
+    if hi > med * HIGH_VS_MEDIAN:
+        return "המחיר היקר גבוה מדי ביחס לחציון"
+
+    d1, d2 = brief.get("min_date"), brief.get("max_date")
+    if not d1 or not d2:
+        return "חסר תאריך"
+    try:
+        gap = abs((dt.date.fromisoformat(d2) - dt.date.fromisoformat(d1)).days)
+    except ValueError:
+        return "תאריך לא תקין"
+    if gap > MAX_DATE_GAP_DAYS:
+        return f"הפרש של {gap} ימים בין שני הקצוות"
+    return None
+
+
+def _store_incomplete(meta):
+    """סניף בלי שם או בלי עיר אינו ניתן לאימות על ידי הקורא."""
+    if not meta:
+        return True
+    for key in ("branch", "city"):
+        v = (meta.get(key) or "").strip()
+        if not v or v == UNKNOWN:
+            return True
+    return False
+
+
 def api_home(_p):
     meta = data_meta()
     popular = []
@@ -294,18 +343,46 @@ def api_home(_p):
     ):
         popular.append(product_brief(r))
     popular.sort(key=lambda p: -p["gap_pct"])
-    top = popular[:8]
+
+    # פסילה לפני הצגה ככותרת. הסניפים נבדקים כאן ולא אחר כך, כי סניף בלי
+    # שם או בלי עיר הוא נתון שהקורא אינו יכול לאמת מול המציאות.
+    rejected = {}
+    kept = []
+    for p in popular:
+        why = _headline_reject(p)
+        if why is None:
+            row = product_row(p["barcode"])
+            lo = store_meta(p["min_chain"], row["min_store"]) if row else None
+            hi = store_meta(p["max_chain"], row["max_store"]) if row else None
+            if _store_incomplete(lo) or _store_incomplete(hi):
+                why = "סניף בלי שם או בלי עיר"
+            else:
+                p["_min_store"], p["_max_store"] = lo, hi
+        if why:
+            rejected[why] = rejected.get(why, 0) + 1
+            continue
+        kept.append(p)
+
+    if rejected:
+        total = sum(rejected.values())
+        print(f"כותרות: נפסלו {total} מתוך {len(popular)} מוצרים "
+            "(הם עדיין מופיעים בחיפוש הרגיל)")
+        for why, n in sorted(rejected.items(), key=lambda kv: -kv[1]):
+            print(f"  {n:>3}  {why}")
+
+    top = kept[:8]
     for p in top:
         p["spark"] = spark_for(p["barcode"])
 
     deal = None
     if top:
         d = dict(top[0])
-        lo = store_meta(d["min_chain"], product_row(d["barcode"])["min_store"])
-        hi = store_meta(d["max_chain"], product_row(d["barcode"])["max_store"])
-        d["min_store"] = lo
-        d["max_store"] = hi
+        d["min_store"] = d.pop("_min_store", None)
+        d["max_store"] = d.pop("_max_store", None)
         deal = d
+    for p in top:
+        p.pop("_min_store", None)
+        p.pop("_max_store", None)
 
     ticker = []
     for r in q(
