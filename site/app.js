@@ -280,7 +280,7 @@ function screenHome() {
     return '<button class="chip" style="border-color:' + c.tint + '" data-open="' + esc(c.barcode) + '">' + esc(prettyName(c.name)) + "</button>";
   }).join("");
 
-  return '<main>' +
+  return '<main id="main">' +
     '<div class="hero" id="hero">' +
       '<div class="hero-layer" style="inset:-40px;transform:translate(' + px1 + "," + py1 + ')">' +
         '<div style="position:absolute;width:340px;height:340px;background:var(--green);left:-80px;top:-100px;animation:blob 9s ease-in-out infinite"></div>' +
@@ -1044,7 +1044,11 @@ function render() {
   else body = screenCart();
 
   var toastHtml = S.toast ? '<div style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
-  document.getElementById("app").innerHTML = header() + tape() + body + mobileNav() + toastHtml;
+  // קישור הדילוג חייב להיות הראשון בסדר ה-Tab, אחרת המשתמש נאלץ לעבור
+  // את כל הניווט בכל טעינת מסך כדי להגיע לתוכן.
+  var skip = '<a class="skip" href="#main">דילוג לתוכן</a>';
+  document.getElementById("app").innerHTML =
+    skip + header() + tape() + body + mobileNav() + toastHtml;
   runCountUps();
 }
 
