@@ -331,6 +331,99 @@ def _store_incomplete(meta):
     return False
 
 
+# ------------------------------------------------------------------ באנר השינויים
+# הבאנר מציג את השינויים החדים ביותר של היום. אחוז גדול נובע לרוב מרעש
+# ולא ממחיר, ולכן יש כאן שלושה תנאים שכולם נדרשים:
+#
+# 1. מספר סניפים מינימלי בשני הימים. חציון של חמישה סניפים קופץ מעצמו.
+# 2. הכיסוי לא השתנה דרמטית בין הימים. אם אתמול דיווחו 8 סניפים והיום 400,
+#    ההפרש בחציון משקף מי דיווח ולא שינוי מחיר.
+# 3. הנקודה הקודמת קרובה בזמן. מחיר שהשתנה היום לעומת לפני חצי שנה הוא
+#    שינוי אמיתי, אבל להציג אותו כתנועת היום זו הטעיה.
+TICKER_LIMIT = 14
+TICKER_MIN_STORES = 30
+TICKER_MAX_COVERAGE_RATIO = 2.0
+TICKER_MAX_GAP_DAYS = 30
+# 4. פיזור המחירים באותו יום. אותו ברקוד נושא לפעמים מחירים ביחידות שונות
+#    (ל-100 גרם מול לקילו מול ליחידה), ואז החציון אינו מספר בעל משמעות והוא
+#    קופץ ברגע שהרכב הסניפים המדווחים חוצה את האמצע. נמדד על הבאנר בפועל:
+#    הפריטים החשודים הראו פיזור של 10 עד 120 מונים, והאמינים נשארו מתחת
+#    ל-5. אשכולית הוצגה כעלייה של 433% רק בגלל 0.30 מול 20.00 באותו יום.
+TICKER_MAX_SPREAD = 5.0
+
+
+def build_ticker():
+    """
+    שתי הנקודות האחרונות של כל מוצר, בשאילתה אחת עם חלון.
+    בלי זה היו נדרשות מאות אלפי שאילתות, אחת לכל מוצר.
+    """
+    rows = q(
+        """
+        WITH ranked AS (
+          SELECT barcode, date, median, n_stores, min_price, max_price,
+                 ROW_NUMBER() OVER (PARTITION BY barcode ORDER BY date DESC) rn
+          FROM market_daily
+        )
+        SELECT a.barcode, a.date, a.median, a.n_stores,
+               a.min_price AS lo, a.max_price AS hi,
+               b.date AS prev_date, b.median AS prev_median, b.n_stores AS prev_stores,
+               b.min_price AS prev_lo, b.max_price AS prev_hi,
+               ps.name
+        FROM ranked a
+        JOIN ranked b ON b.barcode = a.barcode AND b.rn = 2
+        JOIN product_stats ps ON ps.barcode = a.barcode
+        WHERE a.rn = 1
+          AND a.date = (SELECT MAX(date) FROM market_daily)
+          AND a.n_stores >= ? AND b.n_stores >= ?
+          AND ps.name IS NOT NULL AND ps.name <> ''
+        """,
+        (TICKER_MIN_STORES, TICKER_MIN_STORES),
+    )
+
+    out = []
+    for r in rows:
+        hi = max(r["n_stores"], r["prev_stores"])
+        lo = min(r["n_stores"], r["prev_stores"])
+        if lo and hi / lo > TICKER_MAX_COVERAGE_RATIO:
+            continue
+        spread = 0
+        for a, b in ((r["lo"], r["hi"]), (r["prev_lo"], r["prev_hi"])):
+            if a and a > 0:
+                spread = max(spread, b / a)
+        if spread > TICKER_MAX_SPREAD:
+            continue
+        try:
+            gap = (dt.date.fromisoformat(r["date"])
+                   - dt.date.fromisoformat(r["prev_date"])).days
+        except ValueError:
+            continue
+        if gap > TICKER_MAX_GAP_DAYS:
+            continue
+        chg = pct(r["median"], r["prev_median"])
+        if chg is None or chg == 0:
+            continue
+        out.append({
+            "barcode": r["barcode"], "name": r["name"],
+            "price": money(r["median"]), "change": chg, "date": r["date"],
+            "prev_date": r["prev_date"], "prev_price": money(r["prev_median"]),
+            "stores": r["n_stores"],
+        })
+
+    # החדים ביותר, ובכוונה משני הכיוונים: באנר שמראה רק התייקרויות
+    # מספר סיפור אחד ולא את מה שקרה באמת.
+    ups = sorted((x for x in out if x["change"] > 0), key=lambda x: -x["change"])
+    downs = sorted((x for x in out if x["change"] < 0), key=lambda x: x["change"])
+    half = TICKER_LIMIT // 2
+    picked = ups[:half] + downs[:TICKER_LIMIT - half]
+    # אם צד אחד דל, משלימים מהצד השני לפי עוצמה
+    if len(picked) < TICKER_LIMIT:
+        rest = [x for x in out if x not in picked]
+        rest.sort(key=lambda x: -abs(x["change"]))
+        picked += rest[:TICKER_LIMIT - len(picked)]
+    picked.sort(key=lambda x: -abs(x["change"]))
+    return picked
+
+
 def api_home(_p):
     meta = data_meta()
     popular = []
@@ -384,25 +477,7 @@ def api_home(_p):
         p.pop("_min_store", None)
         p.pop("_max_store", None)
 
-    ticker = []
-    for r in q(
-        """
-        SELECT md.barcode, md.date, md.median, ps.name FROM market_daily md
-        JOIN market_products mp ON mp.barcode = md.barcode
-        JOIN product_stats ps ON ps.barcode = md.barcode
-        WHERE md.date = (SELECT MAX(date) FROM market_daily WHERE barcode = md.barcode)
-        ORDER BY mp.rank LIMIT 14
-        """
-    ):
-        prev = q1(
-            "SELECT median FROM market_daily WHERE barcode = ? AND date < ? ORDER BY date DESC LIMIT 1",
-            (r["barcode"], r["date"]),
-        )
-        chg = pct(r["median"], prev["median"]) if prev else None
-        ticker.append({
-            "barcode": r["barcode"], "name": r["name"], "price": money(r["median"]),
-            "change": chg, "date": r["date"],
-        })
+    ticker = build_ticker()
     return {"meta": meta, "popular": top, "deal": deal, "ticker": ticker,
             "quick": [{"barcode": p["barcode"], "name": p["name"], "tint": p["tint"]} for p in popular[:5]]}
 
