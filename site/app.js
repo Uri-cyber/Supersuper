@@ -51,18 +51,51 @@ function prettyName(s) {
     .trim();
 }
 
+var REPORT_TO = "meiriuri@gmail.com";
+
+/* קישור דיווח על טעות.
+
+   הפרטים ממולאים מראש בכוונה: פנייה שכתוב בה "המחיר לא נכון" אי אפשר
+   לבדוק, ופנייה שיש בה ברקוד, סניף ותאריך אפשר להצליב מול קובץ המקור
+   שהרשת פרסמה. זה ההבדל בין תלונה לבין תיקון. */
+function reportLink(info, label, style) {
+  var lines = [
+    "נתקלתי בנתון שנראה לי שגוי באתר מחירון.",
+    "",
+    "מוצר: " + (info.name || ""),
+    "ברקוד: " + (info.barcode || ""),
+    "רשת: " + (info.chain || ""),
+    "סניף: " + (info.branch || ""),
+    "עיר: " + (info.city || ""),
+    "המחיר שמוצג באתר: " + (info.price != null ? nis(info.price) + ' ש"ח' : ""),
+    "התאריך שמוצג לצדו: " + (info.date ? dateHe(info.date) : ""),
+    "",
+    "מה לדעתי הנתון הנכון:",
+    "",
+    "איך ידוע לי:",
+    "",
+    "כתובת הדף: " + location.href
+  ];
+  var href = "mailto:" + REPORT_TO +
+    "?subject=" + encodeURIComponent("דיווח על טעות במחירון - " + (info.name || "")) +
+    "&body=" + encodeURIComponent(lines.join("\n"));
+  return '<a class="report-link" href="' + href + '"' +
+    (style ? ' style="' + style + '"' : "") +
+    ' title="פותח הודעת דוא\u0027ל עם הפרטים ממולאים">' + (label || "דווח על טעות") + "</a>";
+}
+
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
     return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
   });
 }
 function nis(v, d) {
-  if (v == null || isNaN(v)) return "—";
+  if (v == null || isNaN(v)) return "-";
   return Number(v).toLocaleString("he-IL", { minimumFractionDigits: d == null ? 2 : d, maximumFractionDigits: d == null ? 2 : d });
 }
-function num(v) { return v == null || isNaN(v) ? "—" : Number(v).toLocaleString("he-IL"); }
+function num(v) { return v == null || isNaN(v) ? "-" : Number(v).toLocaleString("he-IL"); }
 function pctStr(v) {
-  if (v == null || isNaN(v)) return "—";
+  if (v == null || isNaN(v)) return "-";
   var s = Number(v).toFixed(1).replace(/\.0$/, "");
   return (v > 0 ? "+" : "") + s + "%";
 }
@@ -238,9 +271,18 @@ function screenHome() {
       '<div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:6px">' +
         '<div style="font-size:13px;font-weight:700;color:var(--purple-tint)">' + num(d.stores) + " סניפים · " + num(d.chains) + " רשתות</div>" +
         '<div style="font-size:26px;font-weight:900;line-height:1.1">' + esc(prettyName(d.name)) + "</div>" +
-        '<div style="font-size:14px;color:var(--purple-tint);font-weight:600">אותו מוצר. ' + pctStr(d.gap_pct) + " יותר יקר ב" + esc(d.max_chain) + " מאשר ב" + esc(d.min_chain) + ".</div>" +
-        '<div class="small" style="color:var(--purple-tint)">הזול: ' + esc(d.min_store.branch) + ", " + esc(d.min_store.city) + " · " + dateHe(d.min_date) +
-        " | היקר: " + esc(d.max_store.branch) + ", " + esc(d.max_store.city) + " · " + dateHe(d.max_date) + "</div>" +
+        '<div style="font-size:14px;color:var(--purple-tint);font-weight:600;line-height:1.6">' +
+          "לפי הקובץ שפרסמה " + esc(d.max_chain) + " ב־" + dateHe(d.max_date) + ": " + nis(d.max) + ' ש"ח.<br>' +
+          "לפי הקובץ שפרסמה " + esc(d.min_chain) + " ב־" + dateHe(d.min_date) + ": " + nis(d.min) + ' ש"ח.<br>' +
+          "הפרש: " + nis(d.max - d.min) + ' ש"ח.</div>' +
+        '<div class="small" style="color:var(--purple-tint)">' +
+          esc(d.min_chain) + ": " + esc(d.min_store.branch) + ", " + esc(d.min_store.city) +
+          " | " + esc(d.max_chain) + ": " + esc(d.max_store.branch) + ", " + esc(d.max_store.city) + "</div>" +
+        '<div style="margin-top:2px">' + reportLink({
+          name: d.name, barcode: d.barcode, chain: d.max_chain,
+          branch: d.max_store.branch, city: d.max_store.city,
+          price: d.max, date: d.max_date
+        }, "דווח על טעות", "color:var(--purple-tint)") + "</div>" +
       "</div>" +
       '<div style="display:flex;align-items:center;gap:14px" class="tnum">' +
         '<div style="background:var(--green);color:var(--ink);border:3px solid var(--ink);border-radius:16px;padding:10px 16px;text-align:center"><div style="font-size:11px;font-weight:800">' + esc(d.min_chain) + '</div><div style="font-size:30px;font-weight:900;line-height:1">' + nis(d.min) + "</div></div>" +
@@ -280,7 +322,7 @@ function screenHome() {
     return '<button class="chip" style="border-color:' + c.tint + '" data-open="' + esc(c.barcode) + '">' + esc(prettyName(c.name)) + "</button>";
   }).join("");
 
-  return '<main>' +
+  return '<main id="main">' +
     '<div class="hero" id="hero">' +
       '<div class="hero-layer" style="inset:-40px;transform:translate(' + px1 + "," + py1 + ')">' +
         '<div style="position:absolute;width:340px;height:340px;background:var(--green);left:-80px;top:-100px;animation:blob 9s ease-in-out infinite"></div>' +
@@ -346,12 +388,12 @@ function screenProduct() {
 
   // KPI
   var kpis = '<div class="grid-auto">' +
-    '<div class="kpi" style="background:var(--green)"><div style="font-size:13px;font-weight:800">הכי זול' + (S.city ? " ב" + esc(S.city) : " בארץ") + ' 🏆</div>' +
+    '<div class="kpi" style="background:var(--green)"><div style="font-size:13px;font-weight:800">הנמוך ביותר שפורסם' + (S.city ? " ב" + esc(S.city) : " בארץ") + '</div>' +
       '<div class="kpi-val tnum"><span data-count="' + st.min + '" data-key="pmin">' + nis(st.min) + '</span><span style="font-size:18px;font-weight:700"> ₪</span></div>' +
       '<div class="small" style="color:var(--green-dark);font-weight:600;line-height:1.4">' + esc(st.min_branch.chain) + " · " + esc(st.min_branch.branch) + ", " + esc(st.min_branch.city) +
         (st.min_ties > 1 ? " ועוד " + (st.min_ties - 1) + " סניפים באותו מחיר" : "") +
         "<br>עודכן " + dateHe(st.min_branch.date) + "</div></div>" +
-    '<div class="kpi" style="background:var(--red);animation-delay:.08s"><div style="font-size:13px;font-weight:800;color:#fff">הכי יקר' + (S.city ? "" : " בארץ") + ' 💸</div>' +
+    '<div class="kpi" style="background:var(--red);animation-delay:.08s"><div style="font-size:13px;font-weight:800;color:#fff">הגבוה ביותר שפורסם' + (S.city ? "" : " בארץ") + '</div>' +
       '<div class="kpi-val tnum" style="color:#fff"><span data-count="' + st.max + '" data-key="pmax">' + nis(st.max) + '</span><span style="font-size:18px;font-weight:700"> ₪</span></div>' +
       '<div class="small" style="color:var(--red-tint);font-weight:600;line-height:1.4">' + esc(st.max_branch.chain) + " · " + esc(st.max_branch.branch) + ", " + esc(st.max_branch.city) +
         (st.max_ties > 1 ? " ועוד " + (st.max_ties - 1) + " סניפים באותו מחיר" : "") +
@@ -546,7 +588,13 @@ function screenProduct() {
       '<div style="border-top:2px dashed var(--div2);padding-top:14px" class="note">' + num(d.branch_count) + " סניפים תואמים · הנתונים מ־" + dateHe(S.meta.latest_date) + "</div>" +
     "</div></aside>" +
     '<div class="prod-main">' +
-      '<div class="small muted"><a data-go="home">חיפוש</a> ‹ <span style="color:var(--ink)">' + esc(prettyName(p.name)) + "</span></div>" +
+      '<div class="small muted" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
+        '<span><a data-go="home">חיפוש</a> ‹ <span style="color:var(--ink)">' + esc(prettyName(p.name)) + "</span></span>" +
+        reportLink({
+          name: p.name, barcode: p.barcode, chain: st.min_branch.chain,
+          branch: st.min_branch.branch, city: st.min_branch.city,
+          price: st.min, date: st.min_branch.date
+        }) + "</div>" +
       '<div class="prod-head" style="background:' + p.tint + '">' +
 
         '<div style="flex:1 1 260px;display:flex;flex-direction:column;gap:8px;min-width:0;position:relative">' +
@@ -623,7 +671,7 @@ function screenMarket() {
       '<div style="font-size:12px;color:var(--light-dark);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(prettyName(i.name)) + "</div></div>" +
       "<div>" + sp + "</div>" +
       '<div class="mono" style="font-size:14px;font-weight:800">' + nis(i.price) + "</div>" +
-      '<div class="mono" style="font-size:11px;font-weight:800;color:' + col + '">' + (i.change == null ? "—" : pctStr(i.change)) + "</div></div>";
+      '<div class="mono" style="font-size:11px;font-weight:800;color:' + col + '">' + (i.change == null ? "-" : pctStr(i.change)) + "</div></div>";
   }).join("") || '<div style="padding:18px;color:var(--muted);font-size:13px">אין מוצר תואם ברשימה</div>';
 
   // chart
@@ -879,9 +927,9 @@ function scanResults() {
       "<td>" + (m.qty > 1 ? '<b>' + m.qty + "×</b> " : "") + esc(prettyName(m.product.name)) +
         (m.ambiguous && m.ambiguous.length ? '<div class="small muted">זוהה מתוך "' + esc(m.desc) + '"</div>' : "") + "</td>" +
       '<td class="tnum">' + paidLine + "</td>" +
-      '<td class="tnum" style="color:var(--green-link);font-weight:800">' + (cheapest ? nis(cheapest.price) + " ₪" : "—") + "</td>" +
+      '<td class="tnum" style="color:var(--green-link);font-weight:800">' + (cheapest ? nis(cheapest.price) + " ₪" : "-") + "</td>" +
       '<td class="small col-opt">' + (atBest ? nis(atBest.price) + " ₪" : '<span class="muted">לא נמכר שם</span>') + "</td>" +
-      '<td class="tnum col-opt" style="color:' + gapCol + ';font-weight:800">' + (gap == null ? "—" : (gap > 0 ? "חסכון " + nis(gap) : nis(Math.abs(gap)) + " ₪ יקר יותר")) + "</td></tr>";
+      '<td class="tnum col-opt" style="color:' + gapCol + ';font-weight:800">' + (gap == null ? "-" : (gap > 0 ? "חסכון " + nis(gap) : nis(Math.abs(gap)) + " ₪ יקר יותר")) + "</td></tr>";
   }).join("");
 
   return '<div class="wrap" style="display:flex;flex-direction:column;gap:20px">' +
@@ -929,7 +977,7 @@ function screenCart() {
       '<div style="width:52px;height:52px;border-radius:12px;flex:none;background:' + (it.tint || "#eee") + ';border:2px solid var(--ink)"></div>' +
       '<div style="flex:1 1 160px;min-width:0"><div style="font-size:16px;font-weight:800">' + esc(prettyName(it.name)) + "</div>" +
         '<div class="small muted">' + (live && live.found ?
-          '<span style="color:var(--green-link);font-weight:800">' + nis(live.min) + '</span> – <span style="color:var(--red);font-weight:800">' + nis(live.max) + "</span> ₪ · " + num(live.stores) + " סניפים" :
+          '<span style="color:var(--green-link);font-weight:800">' + nis(live.min) + '</span> - <span style="color:var(--red);font-weight:800">' + nis(live.max) + "</span> ₪ · " + num(live.stores) + " סניפים" :
           (d ? "לא נמצא בסניפים שתואמים לסינון" : "טוען…")) + "</div></div>" +
       '<div class="qty"><button data-qty="' + esc(it.barcode) + '" data-delta="-1">−</button>' +
         '<span style="min-width:22px;text-align:center;font-weight:900" class="tnum">' + it.qty + "</span>" +
@@ -1044,7 +1092,11 @@ function render() {
   else body = screenCart();
 
   var toastHtml = S.toast ? '<div style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
-  document.getElementById("app").innerHTML = header() + tape() + body + mobileNav() + toastHtml;
+  // קישור הדילוג חייב להיות הראשון בסדר ה-Tab, אחרת המשתמש נאלץ לעבור
+  // את כל הניווט בכל טעינת מסך כדי להגיע לתוכן.
+  var skip = '<a class="skip" href="#main">דילוג לתוכן</a>';
+  document.getElementById("app").innerHTML =
+    skip + header() + tape() + body + mobileNav() + toastHtml;
   runCountUps();
 }
 

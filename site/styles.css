@@ -1,3 +1,23 @@
+/* ---------- גופנים מקומיים ----------
+   הורדו לריפו כדי שלא יישאר שום מארח חיצוני. טעינה מגוגל הייתה
+   חושפת את כתובת ה-IP של כל מבקר לצד שלישי, בלי שהוא בחר בכך,
+   ובלי שיש לכך צורך אמיתי.
+   swap: הטקסט מוצג מיד בגופן המערכת ומתחלף כשהגופן נטען. */
+@font-face{font-family:'Heebo';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:400;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:500;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:700;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:900;font-display:swap;src:url('fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:900;font-display:swap;src:url('fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:600;font-display:swap;src:url('fonts/jetbrains-mono-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/jetbrains-mono-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+
 /* מחירון - עיצוב ניאו-ברוטליסטי. גבולות 3px, צללים קשיחים, צבעים רוויים. */
 :root{
   --ink:#14151a; --bg:#f6f4ec; --card:#fff;
@@ -217,3 +237,37 @@ html,body{max-width:100%;overflow-x:hidden}
   td,th{padding:8px 5px;font-size:13px}
 }
 @media print{.hdr,.tape,.mob-nav{display:none}}
+
+/* ---------- קישור דילוג ופוטר משפטי ---------- */
+
+/* מחוץ למסך עד שמקבל פוקוס. לא display:none, כי אלמנט מוסתר כך
+   אינו מקבל פוקוס כלל ולכן גם לא היה מופיע בלחיצת Tab. */
+.skip{
+  position:absolute;right:-9999px;top:0;z-index:200;
+  background:#0c3f22;color:#fff;padding:12px 20px;
+  font-weight:800;text-decoration:none;border-radius:0 0 0 12px;
+}
+.skip:focus{right:0}
+
+#site-legal-footer{
+  max-width:820px;margin:24px auto 110px;   /* 110px כדי שהניווט התחתון הקבוע לא יחתוך */
+  padding:0 20px;text-align:center;
+  color:var(--muted);font-size:12.5px;line-height:1.7;
+}
+#site-legal-footer .legal-note{margin:0 0 8px}
+#site-legal-footer nav{display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:center}
+#site-legal-footer a{color:var(--muted);text-decoration:underline;font-weight:600}
+#site-legal-footer a:hover{color:var(--ink)}
+#site-legal-footer a:focus-visible{
+  outline:3px solid var(--ink);outline-offset:3px;border-radius:3px;color:var(--ink);
+}
+
+/* קישור דיווח על טעות */
+.report-link{
+  font-size:12px;font-weight:700;text-decoration:underline;color:inherit;
+  opacity:.85;white-space:nowrap;
+}
+.report-link:hover{opacity:1}
+.report-link:focus-visible{
+  outline:3px solid currentColor;outline-offset:3px;border-radius:3px;opacity:1;
+}
