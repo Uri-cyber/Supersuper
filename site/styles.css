@@ -19,13 +19,22 @@
 @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:800;font-display:swap;src:url('fonts/jetbrains-mono-600-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
 
 /* מחירון - עיצוב ניאו-ברוטליסטי. גבולות 3px, צללים קשיחים, צבעים רוויים. */
+/* ניגודיות: הערכים נמדדו על האתר החי מול הרקע שמאחוריהם, ולא נבחרו לפי
+   מראה. הישנים נכשלו ב-4.5:1 שנדרש לטקסט רגיל: האפור נתן 3.74, האדום עם
+   טקסט לבן 3.27, והסגול 3.30. כל צבע הוחשך למינימום שנדרש כדי לעבור,
+   כדי לשמור על אופי העיצוב. */
 :root{
   --ink:#14151a; --bg:#f6f4ec; --card:#fff;
-  --green:#1fb85a; --green-dark:#0c3f22; --green-link:#0f9d4a; --green-tint:#e9fbef;
-  --red:#ff4d4d; --red-dark:#c62828; --red-tint:#ffe3e3;
+  --green:#1fb85a; --green-dark:#0c3f22; --green-link:#0c813d; --green-tint:#e9fbef;
+  --red:#d44040; --red-dark:#c62828; --red-tint:#ffe3e3;
   --yellow:#ffcb3d; --yellow-dark:#5a4300;
-  --purple:#7c5cff; --purple-tint:#e3dcff;
-  --muted:#7a7d86; --muted-dark:#a7aab3; --light-dark:#c9ccd6; --body:#4b4e56;
+  --purple:#664bd1; --purple-tint:#e3dcff;
+  --muted:#6d6f77; --muted-dark:#73757c;
+  /* על רקע כהה צריך צבע בהיר יותר ולא כהה יותר. אותו משתנה לא יכול
+     לשרת את שני ההקשרים, ולכן יש כאן זוג ייעודי לרקע הכהה. */
+  --muted-on-dark:#7d7f85; --red-on-dark:#d85151;
+  /* ירוק כטקסט על לבן. הירוק הבהיר נועד לרקעים ולא לאותיות. */
+  --green-text:#178843; --light-dark:#c9ccd6; --body:#4b4e56;
   --border-dark:#2b2d36; --card-dark:#1c1d24; --div:#f0eee6; --div2:#e6e3d8;
 }
 *{box-sizing:border-box}
@@ -71,7 +80,7 @@ button{cursor:pointer}
 .brand{display:flex;align-items:center;gap:12px;cursor:pointer}
 .logo{width:40px;height:40px;border-radius:12px;background:var(--green);display:grid;place-items:center;color:var(--ink);font-weight:900;font-size:22px;transform:rotate(-6deg);box-shadow:4px 4px 0 var(--yellow);flex:none}
 .wordmark{font-size:24px;font-weight:900;letter-spacing:-.02em}
-.tagline{font-size:12px;color:var(--muted-dark);padding-top:4px}
+.tagline{font-size:12px;color:var(--muted-on-dark);padding-top:4px}
 .nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .tab{border:2px solid #3a3c45;background:transparent;color:#fff;padding:8px 16px;border-radius:999px;font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px}
 .tab:hover{border-color:#6b6e78}
@@ -270,4 +279,45 @@ html,body{max-width:100%;overflow-x:hidden}
 .report-link:hover{opacity:1}
 .report-link:focus-visible{
   outline:3px solid currentColor;outline-offset:3px;border-radius:3px;opacity:1;
+}
+
+/* ---------- נגישות ---------- */
+
+/* טקסט לקוראי מסך בלבד. לא display:none, כי כך הוא לא היה מוקרא כלל. */
+.sr-only{
+  position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0;
+}
+
+/* מיקוד גלוי לכל מה שאפשר להגיע אליו במקלדת, כולל רכיבים שהוסבו
+   ל-role="button" ואינם כפתור אמיתי. */
+[role="button"]:focus-visible,
+.pcard:focus-visible,.chip:focus-visible,.deal:focus-visible,
+.tape-item:focus-visible,.mkt-row:focus-visible,
+a:focus-visible,button:focus-visible,
+input:focus-visible,select:focus-visible,textarea:focus-visible{
+  outline:3px solid var(--ink);outline-offset:3px;border-radius:6px;
+}
+
+/* כפתור עצירת הבאנר */
+.tape{position:relative}
+.tape-toggle{
+  position:absolute;inset-inline-start:6px;top:50%;transform:translateY(-50%);
+  z-index:4;min-width:32px;min-height:32px;line-height:1;
+  border:2px solid var(--ink);border-radius:8px;background:var(--yellow);
+  color:var(--ink);font-size:12px;font-weight:900;cursor:pointer;
+}
+.tape.is-paused .tape-inner{animation-play-state:paused}
+
+/* יעדי מגע: לפחות 24 פיקסלים, כנדרש ב-WCAG 2.5.8 */
+.tape-item,.chip,.report-link,#site-legal-footer a{min-height:24px}
+
+/* מסך הבורסה הוא ערכת נושא כהה. הצבעים שהוחשכו כדי לעבור על רקע בהיר
+   נכשלים כאן בדיוק מהסיבה ההפוכה, ולכן הוא מקבל ערכים משלו. משתני CSS
+   עוברים בירושה, כך שהגדרה אחת על השורש מתקנת את כל מה שבתוכו. */
+.mkt{
+  --muted:#8d8f95;
+  --green-text:#1fb85a;
+  --red:#ff4f4f;
+  --muted-dark:#8d8f95;
 }

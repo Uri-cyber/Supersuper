@@ -29,6 +29,7 @@ var S = {
   meta: null,
   cities: [],
   burst: false,
+  tapePaused: false,
   marketQuery: "",
   filterOpen: (typeof window !== "undefined" && window.innerWidth > 820),
   mx: 0, my: 0,
@@ -36,6 +37,17 @@ var S = {
 };
 
 var HEAT = ["#1fb85a", "#7fd63a", "#ffcb3d", "#ff9a3d", "#ff6a4d", "#ff4d4d"];
+/* אותה סקאלה, מוחשכת לשימוש כטקסט על רקע לבן. הצבעים המקוריים נועדו לפסים
+   ולרקעים; הירוק הבהיר נותן 1.81 מול לבן ולא נקרא. כל ערך כאן הוא הכהה
+   המינימלי שעובר 4.5:1, כדי לשמור על אותה הבחנה בין הדרגות. */
+var HEAT_TEXT = ["#178843", "#4d8323", "#8f7222", "#a86628", "#c4523b", "#d44040"];
+/* משמש רק ברשימת הערים, שיושבת על רקע בהיר. בתרשים העומק שבמסך הבורסה
+   נשארת הפלטה המקורית, כי שם הרקע כהה והצבעים הבהירים דווקא עוברים
+   בנוחות (4.5 עד 11). */
+function heatText(c) {
+  var i = HEAT.indexOf(c);
+  return i >= 0 ? HEAT_TEXT[i] : c;
+}
 var UNKNOWN = "לא ידוע";
 var LS_CART = "mehiron.cart";
 var LS_CITY = "mehiron.city";
@@ -123,6 +135,20 @@ function loadCart() {
   } catch (e) {}
 }
 function cartCount() { return S.cart.reduce(function (a, i) { return a + (i.qty || 1); }, 0); }
+/* קורא מסך אינו יודע שהמסך התחלף, כי הכתובת לא נטענה מחדש. הודעה קצרה
+   באזור חי אומרת לו איפה הוא נמצא עכשיו. */
+function announceScreen() {
+  var names = { home: "עמוד הבית", product: "עמוד מוצר", market: "בורסת המחירים",
+                scan: "בדיקת קבלה", cart: "הסל שלי" };
+  var live = document.getElementById("a11y-live");
+  if (!live) return;
+  var txt = names[S.screen] || "";
+  if (S.screen === "product" && S.product && S.product.product) {
+    txt += ": " + S.product.product.name;
+  }
+  if (live.textContent !== txt) live.textContent = txt;
+}
+
 function toast(msg) {
   S.toast = msg;
   render();
@@ -173,7 +199,7 @@ function header() {
     '<div class="brand" data-go="home"><div class="logo">₪</div>' +
     '<div class="wordmark">מחירון</div>' +
     '<div class="tagline">כל סניף. כל מחיר. כל יום.</div></div>' +
-    '<nav class="nav">' +
+    '<nav class="nav" aria-label="ניווט עליון">' +
       tab("home", "חיפוש") +
       tab("scan", "סרוק קבלה", "▦") +
       tab("market", "בורסת המחירים", "📈") +
@@ -186,7 +212,7 @@ function mobileNav() {
   function t(id, label, icon) {
     return '<button class="' + (S.screen === id ? "on" : "") + '" data-go="' + id + '"><span style="font-size:17px">' + icon + "</span>" + label + "</button>";
   }
-  return '<nav class="mob-nav">' + t("home", "חיפוש", "⌕") + t("market", "בורסה", "📈") +
+  return '<nav class="mob-nav" aria-label="ניווט ראשי">' + t("home", "חיפוש", "⌕") + t("market", "בורסה", "📈") +
     t("scan", "סרוק", "▦") + t("cart", "הסל" + (c ? " (" + c + ")" : ""), "🛒") + "</nav>";
 }
 
@@ -194,8 +220,9 @@ function tape() {
   var items = (S.home && S.home.ticker) || [];
   if (!items.length) return "";
   function one(t) {
-    var col = t.change == null || t.change === 0 ? "var(--muted-dark)"
-              : (t.change < 0 ? "var(--green)" : "var(--red)");
+    // הדלתא יושבת על רקע כהה, ולכן משתמשת בגרסאות הבהירות
+    var col = t.change == null || t.change === 0 ? "var(--muted-on-dark)"
+              : (t.change < 0 ? "var(--green)" : "var(--red-on-dark)");
     var arrow = t.change == null ? "•" : (t.change < 0 ? "▼" : (t.change > 0 ? "▲" : "="));
     var chg = t.change == null ? "אין השוואה"
               : (t.change === 0 ? "= ללא שינוי" : arrow + " " + Math.abs(t.change).toFixed(1) + "%");
@@ -204,7 +231,15 @@ function tape() {
       esc(prettyName(t.name)) + " · " + nis(t.price) + " ₪</span>";
   }
   var html = items.map(one).join("");
-  return '<div class="tape"><div class="tape-inner">' + html + html + "</div></div>";
+  // תוכן שזז מעצמו יותר מחמש שניות חייב כפתור עצירה. זו גם נגישות וגם
+  // התחשבות במי שהתנועה מפריעה לו לקרוא.
+  var paused = S.tapePaused ? " is-paused" : "";
+  var btn = '<button type="button" class="tape-toggle" data-tape-toggle ' +
+    'aria-pressed="' + (S.tapePaused ? "true" : "false") + '" ' +
+    'aria-label="' + (S.tapePaused ? "הפעלת הגלילה של סרגל השינויים" : "עצירת הגלילה של סרגל השינויים") + '">' +
+    (S.tapePaused ? "▶" : "❚❚") + "</button>";
+  return '<div class="tape' + paused + '" role="region" aria-label="שינויי מחיר חדים היום">' +
+    btn + '<div class="tape-inner">' + html + html + "</div></div>";
 }
 
 function freshnessNote() {
@@ -228,7 +263,7 @@ function suggestHtml() {
   }
   var list = S.suggestions;
   if (list.length) {
-    return '<div class="suggest">' + list.map(function (s) {
+    return '<div class="suggest" id="suggest-list" role="listbox" aria-label="תוצאות חיפוש">' + list.map(function (s) {
       return '<div class="suggest-row" data-open="' + esc(s.barcode) + '">' +
         '<div style="display:flex;align-items:center;gap:12px;min-width:0">' +
           '<div style="width:40px;height:40px;border-radius:10px;flex:none;background:' + s.tint + '"></div>' +
@@ -300,7 +335,7 @@ function screenHome() {
         return (i / (p.spark.length - 1) * 100).toFixed(1) + "," + (22 - (v - mn) / rng * 20).toFixed(1);
       }).join(" ");
       var down = p.spark[p.spark.length - 1] <= p.spark[0];
-      spark = '<svg viewBox="0 0 100 24" preserveAspectRatio="none" style="width:100%;height:24px;display:block;direction:ltr"><polyline points="' + pts + '" fill="none" stroke="' + (down ? "var(--green)" : "var(--red)") + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      spark = '<svg aria-hidden="true" focusable="false" viewBox="0 0 100 24" preserveAspectRatio="none" style="width:100%;height:24px;display:block;direction:ltr"><polyline points="' + pts + '" fill="none" stroke="' + (down ? "var(--green)" : "var(--red)") + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     } else {
       spark = '<div class="small muted" style="height:24px;display:flex;align-items:center">אין מספיק היסטוריה להצגת מגמה</div>';
     }
@@ -338,8 +373,14 @@ function screenHome() {
         '<p style="margin:0;color:var(--light-dark);font-size:18px;text-align:center;max-width:560px">חפשו מוצר ותראו את המחיר בכל סניף בארץ, לפי הקבצים שהרשתות מחויבות לפרסם.</p>' +
         '<div class="searchwrap">' +
           '<div class="searchbox' + (S.focused ? " on" : "") + '">' +
-            '<span style="font-size:24px;font-weight:900">⌕</span>' +
-            '<input id="q" value="' + esc(S.query) + '" placeholder="חפשו מוצר, ברקוד או מותג…" autocomplete="off">' +
+            // הזכוכית ירשה טקסט לבן מהכותרת הכהה וישבה על תיבת חיפוש לבנה,
+            // כלומר הייתה בלתי נראית לגמרי. aria-hidden כי התווית כבר מסבירה.
+            '<span aria-hidden="true" style="font-size:24px;font-weight:900;color:var(--muted)">⌕</span>' +
+            '<label for="q" class="sr-only">חיפוש מוצר לפי שם, ברקוד או מותג</label>' +
+            '<input id="q" type="search" value="' + esc(S.query) + '" placeholder="חפשו מוצר, ברקוד או מותג…" ' +
+              'autocomplete="off" role="combobox" aria-expanded="' + (S.focused && S.suggestions.length ? "true" : "false") + '" ' +
+              'aria-controls="suggest-list" aria-describedby="q-help">' +
+            '<span id="q-help" class="sr-only">התוצאות מופיעות מתחת לשדה תוך כדי הקלדה</span>' +
             '<button class="btn btn-green" style="border:0;padding:12px 22px" data-search>חיפוש</button>' +
           "</div>" + sug +
         "</div>" +
@@ -430,7 +471,7 @@ function screenProduct() {
       '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
         '<span style="font-weight:700;font-size:14px">' + esc(c.city) + "</span>" +
         '<span class="small muted"> · ' + (c.stores === 1 ? "סניף אחד" : c.stores + " סניפים") + "</span></span>" +
-      '<span class="tnum" style="font-weight:900;color:' + c.color + '">' + nis(c.min) + " ₪</span>" +
+      '<span class="tnum" style="font-weight:900;color:' + heatText(c.color) + '">' + nis(c.min) + " ₪</span>" +
       '<div style="grid-column:1/-1;height:7px;border-radius:4px;background:var(--div2);overflow:hidden;direction:ltr">' +
         '<div style="height:100%;width:' + w.toFixed(0) + '%;background:' + c.color + ';border-radius:4px"></div></div>' +
     "</div>";
@@ -513,7 +554,7 @@ function screenProduct() {
     hist = '<section class="card" style="display:flex;flex-direction:column;gap:14px">' +
       '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h3 class="h3">היסטוריית מחיר' + (nSparse ? "" : " (חציון ארצי)") + '</h3><span class="small muted">' + hs.length + " ימים</span></div>" +
       '<div style="position:relative;direction:ltr">' +
-      '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' +
+      '<svg aria-hidden="true" focusable="false" viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' +
         '<line x1="40" y1="20" x2="590" y2="20" stroke="var(--div2)" stroke-dasharray="4 4"/>' +
         '<line x1="40" y1="95" x2="590" y2="95" stroke="var(--div2)" stroke-dasharray="4 4"/>' +
         '<line x1="40" y1="170" x2="590" y2="170" stroke="var(--ink)" stroke-width="2"/>' +
@@ -524,9 +565,9 @@ function screenProduct() {
       labels + "</div>" +
       (nSparse
         ? '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:700">' +
-            '<span style="display:inline-flex;align-items:center;gap:6px"><svg width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-opacity=".35" stroke-width="2.5" stroke-dasharray="6 5"/></svg>' +
+            '<span style="display:inline-flex;align-items:center;gap:6px"><svg aria-hidden="true" focusable="false" width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-opacity=".35" stroke-width="2.5" stroke-dasharray="6 5"/></svg>' +
             'פחות מ־' + MIN_STORES + ' סניפים</span>' +
-            '<span style="display:inline-flex;align-items:center;gap:6px"><svg width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-width="4"/></svg>כיסוי רחב</span></div>'
+            '<span style="display:inline-flex;align-items:center;gap:6px"><svg aria-hidden="true" focusable="false" width="26" height="6" style="flex:none"><line x1="0" y1="3" x2="26" y2="3" stroke="var(--purple)" stroke-width="4"/></svg>כיסוי רחב</span></div>'
         : "") +
       '<div class="note">החציון מחושב מכל הסניפים שדיווחו על המוצר באותו יום. ' +
       'הקו מוחזק ישר עד לשינוי הבא, כי מחיר נשאר על כנו עד שהוא משתנה - ' +
@@ -557,14 +598,18 @@ function screenProduct() {
   var oneDate = topDates.length === 1 ? topDates[0] : null;
   var rows = top10.map(function (b, i) {
     var vs = pctStr(((b.price - st.median) / st.median) * 100);
-    var col = b.price <= st.median ? "var(--green)" : "var(--red)";
+    // הירוק בהיר, ולכן טקסט לבן עליו נותן 2.6 בלבד. עם טקסט כהה הוא נותן 7.0,
+    // והצבע נשמר. האדום הוחשך ולכן דווקא עליו הלבן עובר.
+    var below = b.price <= st.median;
+    var col = below ? "var(--green)" : "var(--red)";
+    var colText = below ? "var(--ink)" : "#fff";
     return '<tr' + (i === 0 ? ' style="background:var(--green-tint)"' : "") + ">" +
       "<td>" + (i + 1) + "</td><td>" + esc(b.chain) + "</td>" +
       "<td>" + esc(b.branch) + (b.note ? ' <span class="small muted" title="' + esc(b.note) + '">ⓘ</span>' : "") + "</td>" +
       '<td class="col-opt">' + esc(b.city) + "</td>" +
       '<td class="tnum" style="font-weight:900">' + nis(b.price) + "</td>" +
       (oneDate ? "" : '<td class="tnum small col-opt">' + dateHe(b.date) + "</td>") +
-      '<td><span style="background:' + col + ';color:#fff;border-radius:6px;padding:2px 7px;font-weight:800;font-size:12px">' + vs + "</span></td></tr>";
+      '<td><span style="background:' + col + ";color:" + colText + ';border-radius:6px;padding:2px 7px;font-weight:800;font-size:12px">' + vs + "</span></td></tr>";
   }).join("");
 
   var inCart = S.cart.some(function (c) { return c.barcode === p.barcode; });
@@ -622,7 +667,7 @@ function screenProduct() {
           : "") +
         hist +
         '<section class="card" style="display:flex;flex-direction:column;gap:14px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">10 הסניפים הזולים</h3>' + (oneDate ? '<span class="small muted tnum">כל המחירים מיום ' + dateHe(oneDate) + '</span>' : "") + '<span class="small" style="color:#fff;background:var(--purple);padding:3px 10px;border-radius:999px;font-weight:700">' + esc(S.city || "כל הארץ") + "</span></div>" +
-          '<div style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th>#</th><th>רשת</th><th>סניף</th><th class="col-opt">עיר</th><th>מחיר</th>' + (oneDate ? "" : '<th class="col-opt">תאריך</th>') + '<th>מול חציון</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+          '<div style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th scope="col">#</th><th scope="col">רשת</th><th scope="col">סניף</th><th scope="col" class="col-opt">עיר</th><th scope="col">מחיר</th>' + (oneDate ? "" : '<th scope="col" class="col-opt">תאריך</th>') + '<th scope="col">מול חציון</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
           '<div class="note">' + esc(freshnessNote()) + "</div></section>" +
       "</div></div></div>";
 }
@@ -662,7 +707,7 @@ function screenMarket() {
     var sp = "";
     if (i.spark && i.spark.length > 1) {
       var mn = Math.min.apply(null, i.spark), mx = Math.max.apply(null, i.spark), rg = (mx - mn) || 1;
-      sp = '<svg viewBox="0 0 56 20" preserveAspectRatio="none" style="width:56px;height:20px;direction:ltr"><polyline points="' +
+      sp = '<svg aria-hidden="true" focusable="false" viewBox="0 0 56 20" preserveAspectRatio="none" style="width:56px;height:20px;direction:ltr"><polyline points="' +
         i.spark.map(function (v, k) { return (k / (i.spark.length - 1) * 56).toFixed(1) + "," + (18 - (v - mn) / rg * 16).toFixed(1); }).join(" ") +
         '" fill="none" stroke="' + col + '" stroke-width="1.5"/></svg>';
     }
@@ -716,7 +761,7 @@ function screenMarket() {
       xl += '<div style="position:absolute;left:' + (X(i) / W * 100) + '%;top:97%;transform:translate(' + shift + ',-100%);font-size:11px;color:var(--muted);font-weight:700;white-space:nowrap">' + dateHe(view[i].date) + "</div>";
     });
     chart = '<div class="mkt-card" style="position:relative;padding:18px">' +
-      '<svg viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block;direction:ltr">' +
+      '<svg aria-hidden="true" focusable="false" viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block;direction:ltr">' +
       '<defs><linearGradient id="af" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="' + col + '" stop-opacity=".35"/><stop offset="100%" stop-color="' + col + '" stop-opacity="0"/></linearGradient></defs>' +
       '<line x1="0" y1="' + (H / 4) + '" x2="' + (W - 60) + '" y2="' + (H / 4) + '" stroke="#2b2d36" stroke-dasharray="3 6"/>' +
       '<line x1="0" y1="' + (H / 2) + '" x2="' + (W - 60) + '" y2="' + (H / 2) + '" stroke="#2b2d36" stroke-dasharray="3 6"/>' +
@@ -776,7 +821,7 @@ function screenMarket() {
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:18px">' +
       '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><h1 style="font-size:30px;font-weight:900">בורסת המחירים</h1>' +
       '<span class="pill" style="background:var(--card-dark);border:2px solid var(--border-dark);color:var(--light-dark);display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);animation:blink 1.6s infinite"></span>עודכן ' + dateHe(d.meta.latest_date) + "</span></div>" +
-      '<div style="display:flex;gap:14px;font-size:13px;font-weight:800;flex-wrap:wrap"><span style="color:var(--green)">ירדו ' + down + '</span><span style="color:var(--red)">עלו ' + up + '</span><span class="muted">' + d.items.length + " מוצרים במעקב</span></div>" +
+      '<div style="display:flex;gap:14px;font-size:13px;font-weight:800;flex-wrap:wrap"><span style="color:var(--green-text)">ירדו ' + down + '</span><span style="color:var(--red)">עלו ' + up + '</span><span class="muted">' + d.items.length + " מוצרים במעקב</span></div>" +
     "</div>" +
     '<div style="display:grid;grid-template-columns:minmax(0,340px) minmax(0,1fr);gap:20px" class="mkt-grid">' +
       '<div class="mkt-card" style="padding:6px;max-height:78vh;overflow-y:auto">' +
@@ -804,7 +849,7 @@ function screenMarket() {
             }).join("") + "</div></div>" +
         chart +
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">' +
-          '<div class="stat-tile"><div class="small muted" style="font-weight:800">הזול היום</div><div class="tnum" style="font-size:22px;font-weight:900;color:var(--green)">' + nis(t.min) + " ₪</div></div>" +
+          '<div class="stat-tile"><div class="small muted" style="font-weight:800">הזול היום</div><div class="tnum" style="font-size:22px;font-weight:900;color:var(--green-text)">' + nis(t.min) + " ₪</div></div>" +
           '<div class="stat-tile"><div class="small muted" style="font-weight:800">היקר היום</div><div class="tnum" style="font-size:22px;font-weight:900;color:var(--red)">' + nis(t.max) + " ₪</div></div>" +
           '<div class="stat-tile"><div class="small muted" style="font-weight:800">פער היום</div><div class="tnum" style="font-size:22px;font-weight:900">' + pctStr(t.gap_pct) + "</div></div>" +
           '<div class="stat-tile"><div class="small muted" style="font-weight:800">סניפים מדווחים</div><div class="tnum" style="font-size:22px;font-weight:900">' + num(sel.stores) + "</div></div>" +
@@ -813,7 +858,7 @@ function screenMarket() {
         '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">' +
           '<section class="mkt-card" style="display:flex;flex-direction:column;gap:8px"><div style="display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:13px;font-weight:900">עומק שוק · מחיר ממוצע לפי רשת</div></div>' + depth + "</section>" +
           '<section class="mkt-card" style="display:flex;flex-direction:column;gap:6px"><div style="font-size:13px;font-weight:900">המובילים מאז העדכון הקודם</div>' +
-            '<div class="small" style="font-weight:800;color:var(--green)">🟢 ירדו הכי הרבה (טוב לקנות)</div>' + d.losers.map(function (m) { return moverRow(m, "var(--green)"); }).join("") +
+            '<div class="small" style="font-weight:800;color:var(--green-text)">🟢 ירדו הכי הרבה (טוב לקנות)</div>' + d.losers.map(function (m) { return moverRow(m, "var(--green)"); }).join("") +
             '<div class="small" style="font-weight:800;color:var(--red);margin-top:4px">🔴 עלו הכי הרבה</div>' + d.gainers.map(function (m) { return moverRow(m, "var(--red)"); }).join("") +
           "</section></div>" +
         '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;background:' + sig.bg + ';border:3px solid var(--ink);border-radius:16px;padding:14px 18px;color:var(--ink)">' +
@@ -942,7 +987,7 @@ function scanResults() {
         '<div style="font-size:19px;font-weight:900">' + esc(best.chain) + " · " + esc(best.branch) + "</div>" +
         (best.address && best.address !== UNKNOWN
           ? '<div class="small" style="color:var(--muted-dark)">' + esc(best.address) + "</div>" : "") +
-        '<div class="tnum" style="font-size:44px;font-weight:900;color:var(--green)"><span data-count="' + bestTotal + '" data-key="scanbest">' + nis(bestTotal) + "</span> ₪</div></div>" +
+        '<div class="tnum" style="font-size:44px;font-weight:900;color:var(--green-text)"><span data-count="' + bestTotal + '" data-key="scanbest">' + nis(bestTotal) + "</span> ₪</div></div>" +
       (saving != null && saving > 0 ?
         '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);color:var(--ink);font-weight:900;transform:rotate(-2deg);font-size:15px">שילמתם ' + nis(saving) + " ₪ יותר · " + (paid ? (saving / paid * 100).toFixed(1) : 0) + "% מהסל</div>" : "") +
     "</div>" +
@@ -952,7 +997,7 @@ function scanResults() {
          r.unmatched.length + " שורות לא זוהו ולא נכללו בחישוב: ") +
         esc(r.unmatched.slice(0, 8).map(function (u) { return u.desc; }).join(" · ")) + "</div>"
       : "") +
-    '<div class="card" style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th>מוצר</th><th>שילמתם</th><th>הזול בארץ</th><th class="col-opt">ב' + esc(best.chain) + '</th><th class="col-opt">הפרש</th></tr></thead><tbody>' + rows + "</tbody></table>" +
+    '<div class="card" style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th scope="col">מוצר</th><th scope="col">שילמתם</th><th scope="col">הזול בארץ</th><th scope="col" class="col-opt">ב' + esc(best.chain) + '</th><th scope="col" class="col-opt">הפרש</th></tr></thead><tbody>' + rows + "</tbody></table>" +
       '<div class="note" style="margin-top:12px">' + esc(freshnessNote()) + "</div></div>" +
     '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">' +
       '<label style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:700">העיר שלי' +
@@ -1037,7 +1082,7 @@ function screenCart() {
       '<div style="position:relative"><div style="font-size:18px;font-weight:900">מד חיסכון: כמה הסל הזה יכול לעלות</div>' +
       '<div style="font-size:28px;font-weight:900;color:var(--yellow);margin:8px 0">' + pctStr((hi - lo) / lo * 100) + " פער</div>" +
       '<div class="meter-bar"></div>' +
-      '<div style="display:flex;justify-content:space-between;margin-top:8px" class="tnum"><span style="color:var(--green);font-size:24px;font-weight:900">' + nis(lo) + " ₪</span>" +
+      '<div style="display:flex;justify-content:space-between;margin-top:8px" class="tnum"><span style="color:var(--green-text);font-size:24px;font-weight:900">' + nis(lo) + " ₪</span>" +
       '<span style="color:var(--red);font-size:24px;font-weight:900">' + nis(hi) + " ₪</span></div></div></div>";
   }
 
@@ -1083,6 +1128,39 @@ function splitCard(d) {
 }
 
 // ------------------------------------------------------------------ render
+/* הנגשת רכיבים שנלחצים אבל אינם כפתור או קישור.
+
+   נמדד באתר החי: 42 רכיבים ניתנים ללחיצה, ורק 13 מהם היו נגישים במקלדת.
+   כרטיס מוצר, שורה בבאנר ושורה בבורסה הם div או span עם data-open, ולכן
+   משתמש מקלדת פשוט לא יכול היה להגיע אליהם. שינוי כל אחד מהם לכפתור היה
+   שובר את הפריסה, ולכן הם מקבלים כאן תפקיד, מיקוד ושם - וההפעלה עצמה
+   מטופלת ב-keydown הגלובלי. */
+/* האזור החי נשאר מחוץ ל-#app בכוונה. אילו היה בתוכו, כל רינדור מחדש
+   היה מוחק ויוצר אותו מחדש, וקורא מסך לא היה מספיק להקריא את מה שהשתנה. */
+function ensureLiveRegion() {
+  if (document.getElementById("a11y-live")) return;
+  var el = document.createElement("div");
+  el.id = "a11y-live";
+  el.className = "sr-only";
+  el.setAttribute("aria-live", "polite");
+  el.setAttribute("aria-atomic", "true");
+  document.body.appendChild(el);
+}
+
+function upgradeClickables(root) {
+  var sel = "[data-open],[data-go],[data-mkt],[data-range],[data-chain]";
+  var nodes = root.querySelectorAll(sel);
+  for (var i = 0; i < nodes.length; i++) {
+    var el = nodes[i];
+    if (el.tagName === "A" || el.tagName === "BUTTON") continue;
+    if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
+    if (!el.hasAttribute("role")) el.setAttribute("role", "button");
+    if (!el.getAttribute("aria-label") && !el.textContent.trim()) {
+      el.setAttribute("aria-label", "פתיחת פריט");
+    }
+  }
+}
+
 function render() {
   var body;
   if (S.screen === "home") body = screenHome();
@@ -1091,12 +1169,15 @@ function render() {
   else if (S.screen === "scan") body = screenScan();
   else body = screenCart();
 
-  var toastHtml = S.toast ? '<div style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
+  var toastHtml = S.toast ? '<div role="status" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
   // קישור הדילוג חייב להיות הראשון בסדר ה-Tab, אחרת המשתמש נאלץ לעבור
   // את כל הניווט בכל טעינת מסך כדי להגיע לתוכן.
   var skip = '<a class="skip" href="#main">דילוג לתוכן</a>';
-  document.getElementById("app").innerHTML =
-    skip + header() + tape() + body + mobileNav() + toastHtml;
+  ensureLiveRegion();
+  var app = document.getElementById("app");
+  app.innerHTML = skip + header() + tape() + body + mobileNav() + toastHtml;
+  upgradeClickables(app);
+  announceScreen();
   runCountUps();
 }
 
@@ -1288,12 +1369,25 @@ function sampleReceipt() {
 }
 
 // ------------------------------------------------------------------ events
+// רכיב עם role="button" חייב להגיב ל-Enter ולרווח, אחרת התפקיד שהוצהר
+// אינו נכון והמשתמש מגיע אליו אבל לא יכול להפעיל אותו.
+document.addEventListener("keydown", function (ev) {
+  if (ev.key !== "Enter" && ev.key !== " " && ev.key !== "Spacebar") return;
+  var t = ev.target;
+  if (!t || t.tagName === "A" || t.tagName === "BUTTON" ||
+      t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") return;
+  if (t.getAttribute("role") !== "button") return;
+  ev.preventDefault();
+  t.click();
+});
+
 document.addEventListener("click", function (ev) {
-  var t = ev.target.closest("[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
+  var t = ev.target.closest("[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
   if (!t) {
     if (S.focused && !ev.target.closest(".searchbox") && !ev.target.closest(".suggest")) { S.focused = false; paintSuggest(); }
     return;
   }
+  if (t.hasAttribute("data-tape-toggle")) { S.tapePaused = !S.tapePaused; render(); return; }
   if (t.hasAttribute("data-filter-toggle")) { S.filterOpen = !S.filterOpen; render(); return; }
   if (t.hasAttribute("data-go")) { go(t.getAttribute("data-go")); return; }
   if (t.hasAttribute("data-open")) { openProduct(t.getAttribute("data-open")); return; }
