@@ -321,3 +321,104 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
   --red:#ff4f4f;
   --muted-dark:#8d8f95;
 }
+
+/* ---------- תפריט נגישות ---------- */
+
+#a11y-btn{
+  position:fixed;inset-inline-start:14px;bottom:120px;z-index:150;
+  width:52px;height:52px;border-radius:50%;
+  border:3px solid var(--ink);background:var(--green-link);color:#fff;
+  font-size:24px;line-height:1;cursor:pointer;box-shadow:3px 3px 0 var(--ink);
+}
+#a11y-btn:hover{background:var(--ink)}
+#a11y-btn:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+
+#a11y-panel{
+  position:fixed;inset-inline-start:14px;bottom:182px;z-index:151;
+  width:min(300px,calc(100vw - 28px));
+  background:#fff;color:var(--ink);
+  border:3px solid var(--ink);border-radius:16px;
+  box-shadow:5px 5px 0 var(--ink);
+  font-size:15px;max-height:70vh;overflow:auto;
+}
+.a11y-head{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:12px 14px;border-bottom:2px solid var(--div);font-size:16px;
+}
+.a11y-close{
+  border:2px solid var(--ink);background:#fff;border-radius:8px;
+  min-width:32px;min-height:32px;cursor:pointer;font-weight:900;
+}
+.a11y-body{padding:10px 12px 14px}
+.a11y-label{font-weight:800;font-size:14px;margin-bottom:6px}
+.a11y-group{padding:6px 4px 12px;border-bottom:2px solid var(--div);margin-bottom:8px}
+.a11y-steps{display:flex;align-items:center;gap:10px}
+.a11y-step{
+  min-width:44px;min-height:40px;border:2px solid var(--ink);border-radius:10px;
+  background:var(--bg);font-weight:900;font-size:16px;cursor:pointer;
+}
+.a11y-zoomval{font-weight:800;min-width:52px;text-align:center}
+
+.a11y-item{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:10px 8px;margin-bottom:4px;min-height:44px;
+  border:2px solid transparent;border-radius:10px;
+  background:none;font:inherit;text-align:start;cursor:pointer;
+}
+.a11y-item:hover{background:var(--bg)}
+.a11y-item[aria-pressed="true"]{border-color:var(--ink);background:var(--green-tint)}
+.a11y-check{
+  width:22px;height:22px;flex:none;border:2px solid var(--ink);border-radius:6px;
+  display:grid;place-items:center;font-weight:900;font-size:13px;background:#fff;
+}
+.a11y-reset{
+  width:100%;margin-top:6px;padding:10px;min-height:44px;
+  border:2px solid var(--ink);border-radius:10px;background:var(--bg);
+  font:inherit;font-weight:800;cursor:pointer;
+}
+.a11y-note{font-size:12px;color:var(--muted);margin:10px 2px 0;line-height:1.6}
+#a11y-panel button:focus-visible,#a11y-panel a:focus-visible{
+  outline:3px solid var(--ink);outline-offset:2px;border-radius:6px;
+}
+
+/* --- ההתאמות שהמשתמש בוחר --- */
+
+/* ניגודיות גבוהה: הטקסט לשחור מלא, הגבולות מתחזקים והרקעים העדינים
+   מתבטלים, כי דווקא הם מורידים את היחס. */
+.a11y-contrast body,.a11y-contrast .card,.a11y-contrast .pcard{background:#fff;color:#000}
+.a11y-contrast .muted,.a11y-contrast .small{color:#333 !important}
+.a11y-contrast .card,.a11y-contrast .pcard,.a11y-contrast .kpi{border-color:#000 !important}
+.a11y-contrast a{color:#00408a !important;text-decoration:underline}
+.a11y-contrast .hero{background:#000}
+
+/* עצירת תנועה, ידנית. אותה השפעה כמו העדפת המערכת, למי שלא הגדיר אותה. */
+.a11y-nomotion *,.a11y-nomotion *::before,.a11y-nomotion *::after{
+  animation-duration:.01ms !important;animation-iteration-count:1 !important;
+  transition-duration:.01ms !important;scroll-behavior:auto !important;
+}
+
+/* הדגשת כל מה שאפשר ללחוץ עליו, למי שמתקשה לזהות רכיבים פעילים */
+.a11y-links a,.a11y-links button,.a11y-links [role="button"]{
+  text-decoration:underline !important;
+  outline:2px solid var(--green-link);outline-offset:2px;
+}
+
+/* גופן קריא: מרווח בין אותיות ובין שורות, בלי הגופן הדקורטיבי.
+
+   המרווח מוחל ישירות על אלמנטי הטקסט ולא על body בלבד: נמדד שהערך אינו
+   עובר בירושה מ-body בכל הדפדפנים, ואז ההגדרה נראית קיימת אבל אינה
+   משנה דבר על המסך. */
+.a11y-font body,.a11y-font button,.a11y-font input,.a11y-font select,.a11y-font textarea{
+  font-family:Arial,system-ui,sans-serif !important;
+}
+.a11y-font h1,.a11y-font h2,.a11y-font h3,.a11y-font p,.a11y-font li,
+.a11y-font td,.a11y-font th,.a11y-font span,.a11y-font div,.a11y-font a,
+.a11y-font button,.a11y-font label{
+  letter-spacing:.05em !important;
+}
+.a11y-font p,.a11y-font li,.a11y-font td,.a11y-font .small{line-height:1.9 !important}
+/* מספרים וברקודים נשארים צפופים, אחרת קשה יותר לקרוא אותם ולא קל יותר */
+.a11y-font .mono,.a11y-font .tnum{letter-spacing:0 !important}
+
+/* הקישור בתוך ההערה הוא יעד מגע בפני עצמו */
+.a11y-note a{display:inline-block;min-height:24px;padding:2px 4px}
