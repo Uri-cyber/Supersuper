@@ -12,4 +12,4 @@ Disallow: /vendor/
 # ממנו אסורים לפי תנאי השימוש: legal.html#terms
 # הקבצים המקוריים מתפרסמים על ידי הרשתות עצמן, וזו הדרך הנכונה להשיג אותם.
 
-Sitemap: https://mehiron.pages.dev/sitemap.xml
+Sitemap: https://mehiron.app/sitemap.xml
