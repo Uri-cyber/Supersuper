@@ -328,7 +328,7 @@ function screenHome() {
 
   var pop = h.popular.map(function (p) {
     var spark = "";
-    if (p.spark && p.spark.length > 1) {
+    if (p.spark && p.spark.length > 1 && Math.min.apply(null, p.spark) !== Math.max.apply(null, p.spark)) {
       var mn = Math.min.apply(null, p.spark), mx = Math.max.apply(null, p.spark);
       var rng = (mx - mn) || 1;
       var pts = p.spark.map(function (v, i) {
@@ -337,7 +337,7 @@ function screenHome() {
       var down = p.spark[p.spark.length - 1] <= p.spark[0];
       spark = '<svg aria-hidden="true" focusable="false" viewBox="0 0 100 24" preserveAspectRatio="none" style="width:100%;height:24px;display:block;direction:ltr"><polyline points="' + pts + '" fill="none" stroke="' + (down ? "var(--green)" : "var(--red)") + '" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     } else {
-      spark = '<div class="small muted" style="height:24px;display:flex;align-items:center">אין מספיק היסטוריה להצגת מגמה</div>';
+      spark = '<div aria-hidden="true" style="height:24px"></div>';
     }
     // אין תמונות מוצר בקבצי הרשתות, ולכן אין ריבוע ממלא מקום.
     // הצבע נשאר כפס זיהוי דק בראש הכרטיס.
