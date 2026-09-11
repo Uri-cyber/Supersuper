@@ -4,7 +4,7 @@
    בפיתוח מקומי אפשר להצביע על קובץ מקומי, או להשתמש ב-mode "server". */
 window.MEHIRON_CONFIG = {
   mode: "sqlite",
-  dbUrl: "https://pub-9f8d54e9d7434c0cbc04eb10276f8b32.r2.dev/mehiron-20260911-9123be0d.db",
+  dbUrl: "https://pub-9f8d54e9d7434c0cbc04eb10276f8b32.r2.dev/mehiron-20260911-971d5a70.db",
   // הנתונים נקראים מכתובת r2.dev ולא מ-data.mehiron.app בכוונה: נמדד
   // (11.09.2026, 80 בקשות על חיבור קבוע) חציון 79 מ"ש מול 201 מ"ש בדומיין
   // המותאם. המטמון של Cloudflare במסלול החינמי מוגבל ל-512 מגה לקובץ,
