@@ -201,11 +201,16 @@ function header() {
     '<div class="tagline">כל סניף. כל מחיר. כל יום.</div></div>' +
     '<nav class="nav" aria-label="ניווט עליון">' +
       tab("home", "חיפוש") +
-      tab("scan", "סרוק קבלה", "▦") +
+      (SCAN_ENABLED ? tab("scan", "סרוק קבלה", "▦") : "") +
       tab("market", "בורסת המחירים", "📈") +
       tab("cart", "הסל שלי", "", ' <span class="badge-count">' + c + "</span>") +
     "</nav></header>";
 }
+
+/* בדיקת הקבלה מוסתרת כרגע: הקריאה מצילום אינה מדויקת מספיק. הקוד נשאר
+   שלם, וכדי להחזיר את המסך משנים את הדגל הזה ל-true. כשהוא כבוי, אין
+   כניסה מהתפריטים ומעמוד הבית, וכתובת #scan מובילה לעמוד הבית. */
+var SCAN_ENABLED = false;
 
 function mobileNav() {
   var c = cartCount();
@@ -213,7 +218,7 @@ function mobileNav() {
     return '<button class="' + (S.screen === id ? "on" : "") + '" data-go="' + id + '"><span style="font-size:17px">' + icon + "</span>" + label + "</button>";
   }
   return '<nav class="mob-nav" aria-label="ניווט ראשי">' + t("home", "חיפוש", "⌕") + t("market", "בורסה", "📈") +
-    t("scan", "סרוק", "▦") + t("cart", "הסל" + (c ? " (" + c + ")" : ""), "🛒") + "</nav>";
+    (SCAN_ENABLED ? t("scan", "סרוק", "▦") : "") + t("cart", "הסל" + (c ? " (" + c + ")" : ""), "🛒") + "</nav>";
 }
 
 function tape() {
@@ -384,10 +389,10 @@ function screenHome() {
             '<button class="btn btn-green" style="border:0;padding:12px 22px" data-search>חיפוש</button>' +
           "</div>" + sug +
         "</div>" +
-        '<button class="scan-cta" data-go="scan">' +
+        (SCAN_ENABLED ? '<button class="scan-cta" data-go="scan">' +
           '<span style="width:44px;height:44px;border-radius:12px;background:var(--ink);color:var(--yellow);display:grid;place-items:center;font-size:22px;flex:none">▦</span>' +
           '<span style="display:flex;flex-direction:column;gap:2px"><span style="font-size:16px;font-weight:900">יש לכם קבלה מהסופר? הדביקו אותה</span><span style="font-size:13px;font-weight:600">נראה לכם כמה הייתם חוסכים על אותו סל בדיוק</span></span>' +
-          '<span style="font-size:22px;font-weight:900;margin-inline-start:6px">←</span></button>' +
+          '<span style="font-size:22px;font-weight:900;margin-inline-start:6px">←</span></button>' : "") +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' + chips + "</div>" +
       "</div></div>" +
     deal +
@@ -1219,6 +1224,7 @@ function applyHash(initial) {
     return;
   }
   var screen = ["home", "market", "scan", "cart"].indexOf(h) >= 0 ? h : "home";
+  if (screen === "scan" && !SCAN_ENABLED) screen = "home";
   if (!initial && screen === S.screen) { render(); return; }
   S.screen = screen;
   S.focused = false;
