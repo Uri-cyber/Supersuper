@@ -15,7 +15,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # גרסת האינדקס - שינוי כאן מאלץ בנייה מחדש
-INDEX_VERSION = "7"
+INDEX_VERSION = "8"
 
 # חלון הטריות: השוואות נעשות רק בין מחירים מאותו חלון זמן
 FRESH_DAYS = 7
@@ -71,7 +71,100 @@ CREATE TABLE IF NOT EXISTS market_products (
     symbol  TEXT,
     rank    INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS ticker (
+    barcode    TEXT PRIMARY KEY,
+    name       TEXT,
+    price      REAL,
+    prev_price REAL,
+    change     REAL,
+    date       TEXT,
+    prev_date  TEXT,
+    stores     INTEGER
+);
 """
+
+# ---------------------------------------------------------------- הבאנר הרץ
+# מחושב כאן פעם ביום ולא בדפדפן: השאילתה עוברת על כל market_daily, וזה
+# לא משהו שרוצים לעשות דרך HTTP-Range מול קובץ של 2 ג'יגה.
+#
+# 1. רק מוצרים שנמכרים בהרבה סניפים. סף של 300 סניפים (כ-13% מהסניפים
+#    בארץ) נבחר לפי מדידה מ-11.09.2026: 293 מועמדים שעברו את כל המסננים
+#    באותו יום, בהשוואה ל-1,351 בסף 30 - כלומר יש מספיק, וכל מה שמוצג הוא
+#    מוצר שהקורא מכיר מהמדף ולא פריט נישה שמדווח עליו חצי סניף.
+# 2. שתי הנקודות מבוססות על כיסוי דומה. אם היום דיווחו 400 סניפים ואתמול
+#    150, ההפרש בחציון משקף מי דיווח ולא שינוי מחיר.
+# 3. הנקודה הקודמת קרובה בזמן. שינוי מול לפני חצי שנה אינו "תנועת היום".
+# 4. פיזור המחירים באותו יום קטן. אותו ברקוד נושא לפעמים מחירים ביחידות
+#    שונות (ל-100 גרם מול לקילו), ואז החציון קופץ בלי שמחיר השתנה.
+TICKER_LIMIT = 14
+TICKER_MIN_STORES = 300
+TICKER_MAX_COVERAGE_RATIO = 2.0
+TICKER_MAX_GAP_DAYS = 30
+TICKER_MAX_SPREAD = 5.0
+
+
+def build_ticker(conn):
+    log("בונה את הבאנר הרץ...")
+    conn.execute("DELETE FROM ticker")
+    rows = conn.execute(
+        """
+        WITH ranked AS (
+          SELECT barcode, date, median, n_stores, min_price, max_price,
+                 ROW_NUMBER() OVER (PARTITION BY barcode ORDER BY date DESC) rn
+          FROM market_daily
+        )
+        SELECT a.barcode, a.date, a.median, a.n_stores,
+               a.min_price AS lo, a.max_price AS hi,
+               b.date AS prev_date, b.median AS prev_median, b.n_stores AS prev_stores,
+               b.min_price AS prev_lo, b.max_price AS prev_hi,
+               ps.name
+        FROM ranked a
+        JOIN ranked b ON b.barcode = a.barcode AND b.rn = 2
+        JOIN product_stats ps ON ps.barcode = a.barcode
+        WHERE a.rn = 1
+          AND a.date = (SELECT MAX(date) FROM market_daily)
+          AND a.n_stores >= ? AND b.n_stores >= ?
+          AND ps.name IS NOT NULL AND ps.name <> ''
+        """,
+        (TICKER_MIN_STORES, TICKER_MIN_STORES),
+    ).fetchall()
+
+    out = []
+    for (bc, date, med, n, lo, hi, pdate, pmed, pn, plo, phi, name) in rows:
+        if min(n, pn) and max(n, pn) / min(n, pn) > TICKER_MAX_COVERAGE_RATIO:
+            continue
+        spread = 0
+        for a, b in ((lo, hi), (plo, phi)):
+            if a and a > 0:
+                spread = max(spread, b / a)
+        if spread > TICKER_MAX_SPREAD:
+            continue
+        try:
+            gap = (dt.date.fromisoformat(date) - dt.date.fromisoformat(pdate)).days
+        except ValueError:
+            continue
+        if gap > TICKER_MAX_GAP_DAYS or not pmed:
+            continue
+        chg = round((med - pmed) / pmed * 100, 1)
+        if chg == 0:
+            continue
+        out.append((bc, name, round(med, 2), round(pmed, 2), chg, date, pdate, n))
+
+    # החדים ביותר, ובכוונה משני הכיוונים: באנר שמראה רק התייקרויות מספר
+    # סיפור אחד ולא את מה שקרה באמת.
+    ups = sorted((x for x in out if x[4] > 0), key=lambda x: -x[4])
+    downs = sorted((x for x in out if x[4] < 0), key=lambda x: x[4])
+    half = TICKER_LIMIT // 2
+    picked = ups[:half] + downs[:TICKER_LIMIT - half]
+    if len(picked) < TICKER_LIMIT:
+        rest = [x for x in out if x not in picked]
+        rest.sort(key=lambda x: -abs(x[4]))
+        picked += rest[:TICKER_LIMIT - len(picked)]
+    conn.executemany("INSERT OR REPLACE INTO ticker VALUES (?,?,?,?,?,?,?,?)", picked)
+    conn.commit()
+    log(f"    {len(out):,} מועמדים עברו את המסננים, נבחרו {len(picked)}")
+
 
 
 def log(msg):
@@ -372,7 +465,7 @@ def main(force=False):
         log("האינדקס מעודכן.")
         return 0
     # מבנה הטבלאות משתנה בין גרסאות אינדקס - בונים אותן מאפס
-    for tbl in ("product_stats", "market_daily", "market_products", "chain_stats", "city_stats"):
+    for tbl in ("product_stats", "market_daily", "market_products", "chain_stats", "city_stats", "ticker"):
         conn.execute(f"DROP TABLE IF EXISTS {tbl}")
     conn.execute("DROP TABLE IF EXISTS product_fts")
     conn.executescript(SCHEMA)
@@ -382,6 +475,7 @@ def main(force=False):
     build_chain_stats(conn)
     build_search_index(conn)
     build_market(conn)
+    build_ticker(conn)
     conn.execute("INSERT OR REPLACE INTO app_meta VALUES ('index_version', ?)", (INDEX_VERSION,))
     conn.execute(
         "INSERT OR REPLACE INTO app_meta VALUES ('index_prices_rows', ?)",

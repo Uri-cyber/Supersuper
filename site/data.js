@@ -303,24 +303,19 @@ function SqliteApi(cfg) {
       });
     }
 
-    // הטיקר: שולפים את כל הסדרות של המוצרים במעקב פעם אחת ומחשבים בזיכרון
-    var mp = await q("SELECT mp.barcode, mp.rank, ps.name FROM market_products mp " +
-                     "JOIN product_stats ps ON ps.barcode=mp.barcode ORDER BY mp.rank LIMIT 14");
-    var tcodes = mp.map(function (r) { return r.barcode; });
-    var series = {};
-    if (tcodes.length) {
-      (await q("SELECT barcode, date, median FROM market_daily WHERE barcode IN (" +
-               placeholders(tcodes.length) + ") ORDER BY barcode, date", tcodes)).forEach(function (r) {
-        (series[r.barcode] = series[r.barcode] || []).push(r);
+    // הבאנר הרץ מחושב מראש בבניית האינדקס (טבלת ticker): השינויים החדים
+    // ביותר בין מוצרים שנמכרים ב-300 סניפים לפחות, אחרי סינון חריגים.
+    var ticker = [];
+    try {
+      ticker = (await q("SELECT barcode, name, price, prev_price, change, date, prev_date, stores " +
+                        "FROM ticker ORDER BY ABS(change) DESC")).map(function (r) {
+        return { barcode: r.barcode, name: r.name, price: money(r.price), prev_price: money(r.prev_price),
+                 change: r.change, date: r.date, prev_date: r.prev_date, stores: r.stores };
       });
+    } catch (e) {
+      // קובץ נתונים ישן בלי הטבלה: עדיף באנר ריק מאשר עמוד בית שבור
+      ticker = [];
     }
-    var ticker = mp.map(function (r) {
-      var v = series[r.barcode] || [];
-      var last = v[v.length - 1], prev = v[v.length - 2];
-      if (!last) return null;
-      return { barcode: r.barcode, name: r.name, price: money(last.median),
-               change: prev ? pct(last.median, prev.median) : null, date: last.date };
-    }).filter(Boolean);
 
     return { meta: meta, popular: top, deal: deal, ticker: ticker,
              quick: popular.slice(0, 5).map(function (p) {

@@ -233,7 +233,8 @@ function tape() {
               : (t.change === 0 ? "= ללא שינוי" : arrow + " " + Math.abs(t.change).toFixed(1) + "%");
     return '<span class="tape-item" data-open="' + esc(t.barcode) + '">' +
       '<span class="tape-delta" style="color:' + col + '">' + esc(chg) + "</span>" +
-      esc(prettyName(t.name)) + " · " + nis(t.price) + " ₪</span>";
+      esc(prettyName(t.name)) + " · " + nis(t.price) + " ₪" +
+      (t.stores ? '<span class="tape-stores">' + t.stores + " סניפים</span>" : "") + "</span>";
   }
   var html = items.map(one).join("");
   // תוכן שזז מעצמו יותר מחמש שניות חייב כפתור עצירה. זו גם נגישות וגם

@@ -22,7 +22,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DB = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # הטבלאות שהאפליקציה באמת קוראת
-TABLES = ["stores", "product_stats", "market_daily", "market_products",
+TABLES = ["stores", "product_stats", "market_daily", "market_products", "ticker",
           "chain_stats", "city_stats", "app_meta"]
 
 FRESH_DAYS = 7

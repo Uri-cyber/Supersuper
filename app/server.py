@@ -477,7 +477,14 @@ def api_home(_p):
         p.pop("_min_store", None)
         p.pop("_max_store", None)
 
-    ticker = build_ticker()
+    # הטבלה נבנית באינדקס ומשותפת לאתר הסטטי; החישוב המקומי נשאר כגיבוי
+    try:
+        ticker = [dict(r) for r in q("SELECT barcode, name, price, prev_price, change, date, "
+                                     "prev_date, stores FROM ticker ORDER BY ABS(change) DESC")]
+    except sqlite3.OperationalError:
+        ticker = []
+    if not ticker:
+        ticker = build_ticker()
     return {"meta": meta, "popular": top, "deal": deal, "ticker": ticker,
             "quick": [{"barcode": p["barcode"], "name": p["name"], "tint": p["tint"]} for p in popular[:5]]}
 
