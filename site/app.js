@@ -30,6 +30,9 @@ var S = {
   cities: [],
   burst: false,
   tapePaused: false,
+  quiz: null,             // {day, questions[]} מהשרת או מהקובץ
+  quizState: null,        // ההתקדמות של היום, נשמרת בדפדפן
+  quizInput: "",
   marketQuery: "",
   filterOpen: (typeof window !== "undefined" && window.innerWidth > 820),
   mx: 0, my: 0,
@@ -135,11 +138,103 @@ function loadCart() {
   } catch (e) {}
 }
 function cartCount() { return S.cart.reduce(function (a, i) { return a + (i.qty || 1); }, 0); }
+
+// ------------------------------------------------------------------ quiz state
+var LS_QUIZ = "mehiron.quiz";
+function blankQuizState() {
+  return { day: null, pos: 0, phase: "ask", answers: [], score: 0, streak: 0, lastDay: null, best: 0 };
+}
+function loadQuizState() {
+  S.quizState = blankQuizState();
+  try {
+    var v = JSON.parse(localStorage.getItem(LS_QUIZ) || "null");
+    if (v && typeof v === "object") {
+      for (var k in S.quizState) if (k in v) S.quizState[k] = v[k];
+    }
+  } catch (e) {}
+}
+function saveQuizState() {
+  try { localStorage.setItem(LS_QUIZ, JSON.stringify(S.quizState)); } catch (e) {}
+}
+function loadQuiz() {
+  API.quiz().then(function (d) {
+    S.quiz = (d && d.questions && d.questions.length) ? d : { missing: true };
+    syncQuizDay();
+    render();
+  }).catch(function () { S.quiz = { missing: true }; render(); });
+}
+/* יום נתונים חדש = שאלון חדש. ההתקדמות של היום הקודם נמחקת, אבל הרצף,
+   השיא והיום האחרון ששיחקו בו נשארים. */
+function syncQuizDay() {
+  var st = S.quizState, qz = S.quiz;
+  if (!qz || !qz.questions) return;
+  if (st.day !== qz.day) {
+    st.day = qz.day; st.pos = 0; st.phase = "ask"; st.answers = []; st.score = 0;
+    saveQuizState();
+  }
+}
+function quizPoints(qn, guess) {
+  if (qn.kind === "updown") return guess === (qn.median > qn.anchor ? "up" : "down") ? 100 : 0;
+  if (qn.kind === "choice") return Math.abs(guess - qn.median) < 0.005 ? 100 : 0;
+  var d = Math.abs(guess - qn.median) / qn.median;
+  return d <= 0.03 ? 100 : (d <= 0.10 ? 60 : (d <= 0.20 ? 30 : 0));
+}
+function answerQuiz(guess) {
+  var st = S.quizState, qz = S.quiz;
+  if (!qz || !qz.questions || st.phase !== "ask") return;
+  var qn = qz.questions[st.pos];
+  if (!qn) return;
+  var pts = quizPoints(qn, guess);
+  st.answers.push({ guess: guess, points: pts });
+  st.score += pts;
+  st.phase = "reveal";
+  saveQuizState();
+  window.scrollTo(0, 0);
+  render();
+}
+function nextQuiz() {
+  var st = S.quizState, qz = S.quiz;
+  if (st.phase !== "reveal") return;
+  st.pos += 1;
+  if (st.pos >= qz.questions.length) {
+    st.phase = "done";
+    // רצף: היום הקודם ששיחקו בו הוא בדיוק יום הנתונים הקודם
+    var prev = st.lastDay ? Date.parse(st.lastDay) : NaN;
+    var cur = Date.parse(qz.day);
+    var diff = (cur - prev) / 86400000;
+    st.streak = (diff >= 1 && diff < 2) ? (st.streak || 0) + 1 : 1;
+    st.lastDay = qz.day;
+    if (st.score > (st.best || 0)) st.best = st.score;
+  } else {
+    st.phase = "ask";
+  }
+  S.quizInput = "";
+  saveQuizState();
+  window.scrollTo(0, 0);
+  render();
+}
+function quizShareText() {
+  var st = S.quizState;
+  var boxes = st.answers.map(function (a) { return a.points >= 100 ? "🟩" : (a.points > 0 ? "🟨" : "⬜"); }).join("");
+  return "מחירון - השאלון היומי " + dateHe(st.day) + "\n" +
+    "ניקוד: " + st.score + "/" + (S.quiz.questions.length * 100) + " " + boxes + "\n" +
+    "רצף: " + st.streak + " " + (st.streak === 1 ? "יום" : "ימים") + "\n" +
+    "https://mehiron.app/#quiz";
+}
+function shareQuiz() {
+  var txt = quizShareText();
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(function () { toast("התוצאה הועתקה. הדביקו אותה בהודעה."); },
+                                            function () { toast("לא הצלחנו להעתיק. אפשר לצלם מסך."); });
+  } else {
+    toast("הדפדפן לא תומך בהעתקה. אפשר לצלם מסך.");
+  }
+}
 /* קורא מסך אינו יודע שהמסך התחלף, כי הכתובת לא נטענה מחדש. הודעה קצרה
    באזור חי אומרת לו איפה הוא נמצא עכשיו. */
 function announceScreen() {
   var names = { home: "עמוד הבית", product: "עמוד מוצר", market: "בורסת המחירים",
-                scan: "בדיקת קבלה", cart: "הסל שלי" };
+                scan: "בדיקת קבלה", cart: "הסל שלי", quiz: "השאלון היומי" };
   var live = document.getElementById("a11y-live");
   if (!live) return;
   var txt = names[S.screen] || "";
@@ -147,6 +242,13 @@ function announceScreen() {
     txt += ": " + S.product.product.name;
   }
   if (live.textContent !== txt) live.textContent = txt;
+}
+
+function submitQuizPrice() {
+  var el = document.getElementById("quizprice");
+  var v = parseFloat((el ? el.value : S.quizInput).replace(",", "."));
+  if (!(v > 0)) { toast("הקלידו מחיר בשקלים, למשל 7.90"); if (el) el.focus(); return; }
+  answerQuiz(Math.round(v * 100) / 100);
 }
 
 function toast(msg) {
@@ -203,6 +305,7 @@ function header() {
       tab("home", "חיפוש") +
       (SCAN_ENABLED ? tab("scan", "סרוק קבלה", "▦") : "") +
       tab("market", "בורסת המחירים", "📈") +
+      tab("quiz", "השאלון היומי", "🎯") +
       tab("cart", "הסל שלי", "", ' <span class="badge-count">' + c + "</span>") +
     "</nav></header>";
 }
@@ -218,7 +321,7 @@ function mobileNav() {
     return '<button class="' + (S.screen === id ? "on" : "") + '" data-go="' + id + '"><span style="font-size:17px">' + icon + "</span>" + label + "</button>";
   }
   return '<nav class="mob-nav" aria-label="ניווט ראשי">' + t("home", "חיפוש", "⌕") + t("market", "בורסה", "📈") +
-    (SCAN_ENABLED ? t("scan", "סרוק", "▦") : "") + t("cart", "הסל" + (c ? " (" + c + ")" : ""), "🛒") + "</nav>";
+    (SCAN_ENABLED ? t("scan", "סרוק", "▦") : "") + t("quiz", "שאלון", "🎯") + t("cart", "הסל" + (c ? " (" + c + ")" : ""), "🛒") + "</nav>";
 }
 
 function tape() {
@@ -1016,6 +1119,108 @@ function scanResults() {
 }
 
 // ------------------------------------------------------------------ cart
+
+// ------------------------------------------------------------------ quiz
+function screenQuiz() {
+  var head = '<div class="wrap" id="main">' +
+    '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);width:fit-content;transform:rotate(-2deg);font-weight:900">🎯 השאלון היומי</div>' +
+    '<h1 style="font-size:36px;font-weight:900;line-height:1.1;margin-top:10px">כמה זה <span style="color:var(--green-text)">עולה</span>?</h1>';
+  if (!S.quiz) return head + '<div class="loading"><span class="spinner"></span> טוען את השאלון…</div></div>';
+  if (S.quiz.missing) {
+    return head + '<div class="card" style="margin-top:16px">השאלון של היום עוד לא מוכן. הוא נבנה יחד עם עדכון הנתונים של הבוקר, נסו שוב מאוחר יותר.</div></div>';
+  }
+  var qz = S.quiz, st = S.quizState, n = qz.questions.length;
+  var dots = "";
+  for (var i = 0; i < n; i++) {
+    var cls = "quiz-dot";
+    var a = st.answers[i];
+    if (a) cls += a.points >= 100 ? " ok" : (a.points > 0 ? " part" : " bad");
+    else if (i === st.pos && st.phase !== "done") cls += " now";
+    dots += '<span class="' + cls + '" aria-hidden="true"></span>';
+  }
+  var progress = '<div class="quiz-progress" role="group" aria-label="התקדמות">' + dots +
+    '<span class="small muted" style="margin-inline-start:8px">' +
+    (st.phase === "done" ? "סיימתם" : "שאלה " + (st.pos + 1) + " מתוך " + n) +
+    " · " + st.score + " נקודות</span></div>" +
+    '<p class="small muted" style="margin:0 0 14px">חמישה מוצרים שנמכרים בכל הארץ. המחיר שמנחשים הוא החציון הארצי ביום ' + dateHe(qz.day) + '. שאלון חדש בכל בוקר.</p>';
+
+  if (st.phase === "done") return head + progress + quizSummary(qz, st) + "</div>";
+
+  var qn = qz.questions[st.pos];
+  var intro = '<div class="card quiz-card">' +
+    '<div class="small muted">נמכר ב־' + num(qn.stores) + ' סניפים של ' + qn.chains + ' רשתות</div>' +
+    '<div style="font-size:26px;font-weight:900;line-height:1.2;margin:6px 0 4px">' + esc(prettyName(qn.name)) + "</div>";
+
+  if (st.phase === "reveal") return head + progress + intro + quizReveal(qn, st.answers[st.pos]) + "</div></div>";
+
+  var body = "";
+  if (qn.kind === "updown") {
+    body = '<p style="font-size:18px;font-weight:700;margin:14px 0 0">המחיר החציוני בארץ יקר או זול מ־<span class="tnum">' + nis(qn.anchor) + '</span> ₪?</p>' +
+      '<div class="quiz-opts">' +
+      '<button type="button" class="btn quiz-opt" data-quiz-answer="up">▲ יקר יותר</button>' +
+      '<button type="button" class="btn quiz-opt" data-quiz-answer="down">▼ זול יותר</button></div>';
+  } else if (qn.kind === "choice") {
+    body = '<p style="font-size:18px;font-weight:700;margin:14px 0 0">איזה מהמחירים הוא החציון הארצי?</p>' +
+      '<div class="quiz-opts">' + qn.options.map(function (v) {
+        return '<button type="button" class="btn quiz-opt tnum" data-quiz-answer="' + v + '">' + nis(v) + " ₪</button>";
+      }).join("") + "</div>";
+  } else {
+    body = '<p style="font-size:18px;font-weight:700;margin:14px 0 0">כמה עולה? הקלידו את הניחוש שלכם בשקלים.</p>' +
+      '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">' +
+      '<label for="quizprice" class="sr-only">הניחוש שלכם בשקלים</label>' +
+      '<input id="quizprice" class="quiz-input tnum" type="number" inputmode="decimal" min="0" step="0.1" value="' + esc(S.quizInput) + '" placeholder="0.00" autocomplete="off">' +
+      '<span style="font-weight:800">₪</span>' +
+      '<button type="button" class="btn btn-green" data-quiz-submit>בדקו</button></div>' +
+      '<div class="small muted" style="margin-top:8px">עד 3% מהחציון: 100 נקודות. עד 10%: 60. עד 20%: 30.</div>';
+  }
+  return head + progress + intro + body + "</div></div>";
+}
+
+function quizStoreLine(s, label) {
+  return '<div class="stat-tile" style="background:#fff;border-color:var(--ink)"><div class="small muted">' + label + "</div>" +
+    '<div class="tnum" style="font-size:22px;font-weight:900">' + nis(s.price) + " ₪</div>" +
+    '<div class="small">' + esc(s.chain) + " · " + esc(s.branch) + ", " + esc(s.city) + "</div>" +
+    '<div class="small muted">פורסם ב־' + dateHe(s.date) + "</div></div>";
+}
+
+function quizReveal(qn, ans) {
+  var yours;
+  if (qn.kind === "updown") yours = ans.guess === "up" ? "יקר יותר" : "זול יותר";
+  else yours = nis(ans.guess) + " ₪";
+  var col = ans.points >= 100 ? "var(--green-text)" : (ans.points > 0 ? "#8a6d00" : "var(--red)");
+  return '<div class="quiz-reveal">' +
+    '<div class="kpi" style="animation:none"><div class="small muted">החציון הארצי</div>' +
+      '<div class="kpi-val tnum" style="font-size:38px">' + nis(qn.median) + ' <span style="font-size:20px">₪</span></div>' +
+      '<div class="small muted">מ־' + num(qn.stores) + " סניפים, ב־" + dateHe(qn.date) + "</div></div>" +
+    '<div class="kpi" style="animation:none;box-shadow:6px 6px 0 ' + col + '"><div class="small muted">הניחוש שלכם</div>' +
+      '<div class="kpi-val tnum" style="font-size:38px">' + esc(yours) + "</div>" +
+      '<div style="font-weight:900;color:' + col + '">' + (ans.points >= 100 ? "מדויק. " : (ans.points > 0 ? "קרוב. " : "רחוק. ")) + ans.points + " נקודות</div></div>" +
+    "</div>" +
+    '<div class="quiz-reveal">' + quizStoreLine(qn.min_store, "הזול ביותר שפורסם") + quizStoreLine(qn.max_store, "היקר ביותר שפורסם") + "</div>" +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">' +
+      '<button type="button" class="btn btn-ink" data-quiz-next>' + (S.quizState.pos + 1 >= S.quiz.questions.length ? "לסיכום" : "השאלה הבאה ←") + "</button>" +
+      '<button type="button" class="btn" data-open="' + esc(qn.barcode) + '">כל הסניפים של המוצר</button></div>';
+}
+
+function quizSummary(qz, st) {
+  var max = qz.questions.length * 100;
+  var rows = qz.questions.map(function (qn, i) {
+    var a = st.answers[i] || { guess: "", points: 0 };
+    var yours = qn.kind === "updown" ? (a.guess === "up" ? "יקר יותר" : "זול יותר") : nis(a.guess) + " ₪";
+    return '<tr><td><span data-open="' + esc(qn.barcode) + '" style="text-decoration:underline">' + esc(prettyName(qn.name)) + "</span></td>" +
+      '<td class="tnum">' + esc(yours) + '</td><td class="tnum">' + nis(qn.median) + ' ₪</td><td class="tnum">' + a.points + "</td></tr>";
+  }).join("");
+  return '<div class="quiz-reveal">' +
+    '<div class="kpi" style="animation:none"><div class="small muted">הניקוד של היום</div><div class="kpi-val tnum">' + st.score + '<span style="font-size:20px">/' + max + "</span></div></div>" +
+    '<div class="kpi" style="animation:none"><div class="small muted">רצף ימים</div><div class="kpi-val tnum">' + st.streak + "</div></div>" +
+    '<div class="kpi" style="animation:none"><div class="small muted">השיא שלכם</div><div class="kpi-val tnum">' + (st.best || st.score) + "</div></div></div>" +
+    '<div class="card" style="margin-top:14px;overflow-x:auto"><table><thead><tr><th scope="col">מוצר</th><th scope="col">הניחוש</th><th scope="col">החציון</th><th scope="col">נקודות</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px">' +
+      '<button type="button" class="btn btn-green" data-quiz-share>העתיקו את התוצאה</button>' +
+      '<button type="button" class="btn" data-go="home">לחיפוש מוצרים</button></div>' +
+    '<p class="small muted" style="margin-top:12px">השאלון הבא מחר בבוקר, אחרי עדכון הנתונים. הניקוד והרצף נשמרים בדפדפן הזה בלבד.</p>';
+}
+
 function screenCart() {
   if (!S.cart.length) {
     return '<div class="wrap"><h1 style="font-size:32px;font-weight:900">🛒 הסל שלי</h1>' +
@@ -1173,6 +1378,7 @@ function render() {
   else if (S.screen === "product") body = screenProduct();
   else if (S.screen === "market") body = screenMarket();
   else if (S.screen === "scan") body = screenScan();
+  else if (S.screen === "quiz") body = screenQuiz();
   else body = screenCart();
 
   var toastHtml = S.toast ? '<div role="status" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
@@ -1200,6 +1406,7 @@ function go(screen, opts) {
   window.scrollTo(0, 0);
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
+  if (screen === "quiz" && !S.quiz) loadQuiz();
   setHash(hashFor(screen), opts.replace);
   render();
 }
@@ -1224,13 +1431,14 @@ function applyHash(initial) {
     render(); loadProduct();
     return;
   }
-  var screen = ["home", "market", "scan", "cart"].indexOf(h) >= 0 ? h : "home";
+  var screen = ["home", "market", "scan", "cart", "quiz"].indexOf(h) >= 0 ? h : "home";
   if (screen === "scan" && !SCAN_ENABLED) screen = "home";
   if (!initial && screen === S.screen) { render(); return; }
   S.screen = screen;
   S.focused = false;
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
+  if (screen === "quiz" && !S.quiz) loadQuiz();
   render();
 }
 
@@ -1389,12 +1597,20 @@ document.addEventListener("keydown", function (ev) {
 });
 
 document.addEventListener("click", function (ev) {
-  var t = ev.target.closest("[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
+  var t = ev.target.closest("[data-quiz-answer],[data-quiz-submit],[data-quiz-next],[data-quiz-share],[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
   if (!t) {
     if (S.focused && !ev.target.closest(".searchbox") && !ev.target.closest(".suggest")) { S.focused = false; paintSuggest(); }
     return;
   }
   if (t.hasAttribute("data-tape-toggle")) { S.tapePaused = !S.tapePaused; render(); return; }
+  if (t.hasAttribute("data-quiz-answer")) {
+    var g = t.getAttribute("data-quiz-answer");
+    answerQuiz(g === "up" || g === "down" ? g : parseFloat(g));
+    return;
+  }
+  if (t.hasAttribute("data-quiz-submit")) { submitQuizPrice(); return; }
+  if (t.hasAttribute("data-quiz-next")) { nextQuiz(); return; }
+  if (t.hasAttribute("data-quiz-share")) { shareQuiz(); return; }
   if (t.hasAttribute("data-filter-toggle")) { S.filterOpen = !S.filterOpen; render(); return; }
   if (t.hasAttribute("data-go")) { go(t.getAttribute("data-go")); return; }
   if (t.hasAttribute("data-open")) { openProduct(t.getAttribute("data-open")); return; }
@@ -1448,6 +1664,7 @@ document.addEventListener("input", function (ev) {
     doSuggest();
   }
   if (ev.target.id === "scantext") { S.scanText = ev.target.value; }
+  if (ev.target.id === "quizprice") { S.quizInput = ev.target.value; }
   if (ev.target.id === "mktq") {
     S.marketQuery = ev.target.value;
     var box = document.querySelector(".mkt-grid");
@@ -1464,6 +1681,7 @@ document.addEventListener("focusin", function (ev) {
 });
 document.addEventListener("keydown", function (ev) {
   if (ev.key === "Enter" && ev.target.id === "q") { ev.preventDefault(); runSearch(); }
+  if (ev.key === "Enter" && ev.target.id === "quizprice") { ev.preventDefault(); submitQuizPrice(); }
   if (ev.key === "Escape" && S.focused) { S.focused = false; paintSuggest(); }
 });
 document.addEventListener("change", function (ev) {
@@ -1525,6 +1743,7 @@ function boot(msg) {
 }
 
 loadCart();
+loadQuizState();
 API = window.MehironData();
 boot("מתחיל…");
 API.init(boot)

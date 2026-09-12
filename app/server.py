@@ -10,6 +10,7 @@ import datetime as dt
 import json
 import mimetypes
 import os
+import random
 import re
 import sqlite3
 import statistics
@@ -957,8 +958,86 @@ def api_receipt(_p, body=None):
     }
 
 
+# ------------------------------------------------------------------ שאלון יומי
+# חמש שאלות ביום, אותן שאלות לכל המבקרים: הבחירה נזרעת מתאריך הנתונים
+# ולא מאקראיות בדפדפן, כדי שאפשר יהיה להשוות תוצאה עם חבר.
+#
+# המחיר "הנכון" הוא החציון הארצי, כי זו התשובה היחידה שאפשר להגן עליה
+# ("החציון מ-1,204 סניפים ב-12.09"). מחיר של סניף בודד אינו כזה.
+#
+# המאגר: מוצרים שנמכרים ב-500 סניפים ו-10 רשתות לפחות, ועוברים את אותם
+# מסנני החריגים של כותרות עמוד הבית. נמדד 12.09.2026: 6,307 מוצרים.
+#
+# צורות השאלה מתחלפות בין השאלות ולא נערמות על אותו מוצר: מי שראה ארבע
+# אפשרויות ובחר נכון כבר יודע את המחיר, ושלב "הקלדה" אחריו היה ריק מתוכן.
+QUIZ_QUESTIONS = 5
+QUIZ_MIN_STORES = 500
+QUIZ_MIN_CHAINS = 10
+QUIZ_KINDS = ["updown", "choice", "exact", "choice", "exact"]
+
+
+def _round10(v):
+    return round(round(v / 0.1) * 0.1, 2)
+
+
+def api_quiz(_p):
+    day = latest_data_date()
+    rng = random.Random("mehiron-quiz-" + day)
+    pool = list(q(
+        """
+        SELECT * FROM product_stats
+        WHERE name IS NOT NULL AND name <> '' AND n_stores >= ? AND n_chains >= ?
+        ORDER BY barcode
+        """,
+        (QUIZ_MIN_STORES, QUIZ_MIN_CHAINS),
+    ))
+    rng.shuffle(pool)
+
+    items = []
+    for row in pool:
+        b = product_brief(row)
+        if _headline_reject(b):
+            continue
+        lo = store_meta(b["min_chain"], row["min_store"])
+        hi = store_meta(b["max_chain"], row["max_store"])
+        if _store_incomplete(lo) or _store_incomplete(hi):
+            continue
+        med = b["median"]
+        if not med or med < 1:
+            continue
+        kind = QUIZ_KINDS[len(items)]
+        item = {
+            "barcode": b["barcode"], "name": b["name"], "tint": b["tint"], "kind": kind,
+            "median": med, "min": b["min"], "max": b["max"],
+            "stores": b["stores"], "chains": b["chains"], "date": day,
+            "min_store": dict(lo, chain=b["min_chain"], price=b["min"], date=b["min_date"]),
+            "max_store": dict(hi, chain=b["max_chain"], price=b["max"], date=b["max_date"]),
+        }
+        if kind == "updown":
+            anchor = _round10(med * rng.choice([0.75, 0.8, 0.85, 0.9, 1.1, 1.15, 1.2, 1.25, 1.35]))
+            if abs(anchor - med) < 0.05:
+                anchor = _round10(med * 1.2)
+            item["anchor"] = anchor
+        elif kind == "choice":
+            opts = [med]
+            tries = 0
+            while len(opts) < 4 and tries < 60:
+                tries += 1
+                v = _round10(med * (1 + rng.choice([-1, 1]) * rng.uniform(0.12, 0.35)))
+                if v > 0 and all(abs(v - o) >= 0.3 for o in opts):
+                    opts.append(v)
+            if len(opts) < 4:
+                continue
+            item["options"] = sorted(opts)
+        items.append(item)
+        if len(items) == QUIZ_QUESTIONS:
+            break
+    return {"day": day, "questions": items}
+
+
 ROUTES_GET = {
     "/api/meta": api_meta,
+    "/api/quiz": api_quiz,
     "/api/home": api_home,
     "/api/search": api_search,
     "/api/suggest": api_search,

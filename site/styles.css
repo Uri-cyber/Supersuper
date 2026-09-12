@@ -425,3 +425,18 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 
 /* מספר הסניפים בבאנר: מידע משני, קטן ומעומעם, על רקע כהה */
 .tape-stores{margin-inline-start:8px;font-size:11px;font-weight:600;color:var(--muted-on-dark)}
+
+/* ---------- השאלון היומי ---------- */
+.quiz-progress{display:flex;align-items:center;gap:6px;margin:14px 0 8px;flex-wrap:wrap}
+.quiz-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--ink);background:#fff;flex:none}
+.quiz-dot.now{background:var(--ink)}
+.quiz-dot.ok{background:var(--green)}
+.quiz-dot.part{background:var(--yellow)}
+.quiz-dot.bad{background:var(--red)}
+.quiz-card{margin-top:8px}
+.quiz-opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.quiz-opt{min-height:60px;font-size:20px;cursor:pointer}
+.quiz-opt:hover{transform:translate(-2px,-2px);box-shadow:4px 4px 0 var(--ink)}
+.quiz-input{border:3px solid var(--ink);border-radius:14px;padding:12px 16px;font-size:24px;font-weight:800;width:170px;text-align:center;background:#fff;color:var(--ink)}
+.quiz-reveal{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px}
+.quiz-reveal .kpi{box-shadow:6px 6px 0 var(--ink)}

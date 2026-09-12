@@ -69,7 +69,8 @@ function ServerApi() {
     basket: function (items, city, includeOld) {
       return post("/api/basket", { items: items, city: city, include_old: includeOld });
     },
-    receipt: function (text, city) { return post("/api/receipt", { text: text, city: city }); }
+    receipt: function (text, city) { return post("/api/receipt", { text: text, city: city }); },
+    quiz: function () { return get("/api/quiz"); }
   };
 }
 
@@ -775,7 +776,10 @@ function SqliteApi(cfg) {
     product: product,
     market: market,
     basket: function (items, city, includeOld) { return basketAnalysis(items, city || null, !!includeOld); },
-    receipt: function (text, city) { return receipt(text, city || null); }
+    receipt: function (text, city) { return receipt(text, city || null); },
+    // השאלון מחושב בבניית קובץ הענן. קובץ ישן בלי המפתח מחזיר null,
+    // והמסך מציג הודעה במקום להישבר.
+    quiz: async function () { return pre.quiz || null; }
   };
 }
 

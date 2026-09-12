@@ -149,6 +149,7 @@ def precompute(conn, out_path):
         "cities": srv.city_list(),
         "home": srv.api_home({}),
         "market": srv.api_market({}),
+        "quiz": srv.api_quiz({}),
         "stores": stores,
     }
     # מסך הבית והבורסה כוללים את המטא; מסירים כדי לא לשמור אותו פעמיים
