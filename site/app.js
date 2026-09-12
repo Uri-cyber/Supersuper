@@ -1179,7 +1179,8 @@ function screenQuiz() {
 function quizStoreLine(s, label) {
   return '<div class="stat-tile" style="background:#fff;border-color:var(--ink)"><div class="small muted">' + label + "</div>" +
     '<div class="tnum" style="font-size:22px;font-weight:900">' + nis(s.price) + " ₪</div>" +
-    '<div class="small">' + esc(s.chain) + " · " + esc(s.branch) + ", " + esc(s.city) + "</div>" +
+    // כשהסניף נקרא על שם העיר ("ראשון לציון, ראשון לציון") מציגים פעם אחת
+    '<div class="small">' + esc(s.chain) + " · " + esc(s.branch) + (s.city && s.city !== s.branch ? ", " + esc(s.city) : "") + "</div>" +
     '<div class="small muted">פורסם ב־' + dateHe(s.date) + "</div></div>";
 }
 
