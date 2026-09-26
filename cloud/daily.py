@@ -307,6 +307,30 @@ def pages_due():
         return True
 
 
+def sync_with_remote():
+    """
+    מביא את מה שמוזג בגיטהאב לפני הדחיפה.
+
+    בלי זה, מיזוג של PR באתר של גיטהאב משאיר את העותק במחשב מאחור, והדחיפה
+    של הבוקר נדחית (non-fast-forward): הנתונים עולים לענן אבל האתר לא
+    מתעדכן, בשקט, עד שמישהו שם לב. כאן מתקדמים רק קדימה (ff-only): אם יש
+    במחשב קומיט שאין בגיטהאב, לא ממזגים שום דבר ומשאירים את זה לאדם.
+    """
+    r = git(["fetch", "-q", "origin", "main"])
+    if r.returncode:
+        log("לא ניתן היה לבדוק את גיטהאב: " + (r.stderr or "").strip()[:160])
+        return
+    behind = (git(["rev-list", "--count", "HEAD..origin/main"]).stdout or "0").strip()
+    if behind in ("", "0"):
+        return
+    r = git(["merge", "--ff-only", "-q", "origin/main"])
+    if r.returncode:
+        log("העותק במחשב מאחורי גיטהאב ולא ניתן לקדם אותו אוטומטית: "
+            + (r.stderr or r.stdout or "").strip()[:200])
+    else:
+        log(f"עודכן מגיטהאב: {behind} שינויים שמוזגו שם נמשכו למחשב.")
+
+
 def publish(new_key):
     """דוחף רק את הנתיבים ב-PUBLISH_PATHS. לעולם לא -A, בכוונה."""
     log("")
@@ -322,6 +346,7 @@ def publish(new_key):
                        "אבל לא פורסם לאתר כדי לא לדחוף עבודה שלא נבדקה. "
                        "אחרי חזרה ל-main אפשר להריץ שוב.")
 
+    sync_with_remote()
     paths = [p for p in PUBLISH_PATHS if os.path.exists(os.path.join(REPO_DIR, p))]
     r = git(["add", "--"] + paths)
     if r.returncode:
@@ -334,6 +359,15 @@ def publish(new_key):
         return False, "git commit נכשל: " + (r.stdout or r.stderr or "").strip()[:200]
     log(r.stdout.strip())
     r = git(["push", "origin", "HEAD:main"])
+    if r.returncode:
+        # מישהו דחף לגיטהאב בין הבדיקה לדחיפה. ניסיון אחד: rebase של קומיט
+        # הפרסום על מה שיש שם, ודחיפה חוזרת. התנגשות = מוותרים ומדווחים.
+        log("הדחיפה נדחתה. מושך את השינויים מגיטהאב ומנסה שוב.")
+        rb = git(["pull", "--rebase", "-q", "origin", "main"])
+        if rb.returncode:
+            git(["rebase", "--abort"])
+        else:
+            r = git(["push", "origin", "HEAD:main"])
     if r.returncode:
         # הנתונים בענן. רק הפרסום נכשל, והאתר ממשיך על הגרסה הקודמת.
         return False, ("ההעלאה לענן הצליחה, אבל הפרסום לאתר נכשל. האתר עדיין מציג "
