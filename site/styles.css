@@ -464,3 +464,6 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{
 /* שם המוצר בכרטיס "הפער של היום": כפתור אמיתי שנראה כמו כותרת */
 .deal-name{all:unset;cursor:pointer;font-size:26px;font-weight:900;line-height:1.1;color:inherit;text-align:start}
 .deal-name:focus-visible{outline:3px solid #fff;outline-offset:3px;border-radius:6px}
+
+/* בזמן חיפוש, כפתור הנגישות הצף לא מסתיר את התוצאות */
+.suggest-open #a11y-btn{visibility:hidden}

@@ -22,7 +22,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SRC_DB = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # הטבלאות שהאפליקציה באמת קוראת
-TABLES = ["stores", "product_stats", "market_daily", "market_products", "ticker",
+TABLES = ["stores", "product_stats", "market_daily", "market_products", "ticker", "product_alt",
           "chain_stats", "city_stats", "app_meta"]
 
 FRESH_DAYS = 7
@@ -90,17 +90,23 @@ def build(page_size, out_path, all_prices=False):
         "name, barcode UNINDEXED, min_price UNINDEXED, max_price UNINDEXED, "
         "median UNINDEXED, gap_pct UNINDEXED, n_stores UNINDEXED, n_chains UNINDEXED, "
         "min_chain UNINDEXED, max_chain UNINDEXED, min_date UNINDEXED, max_date UNINDEXED, "
+        # מילים משמות של רשתות אחרות (app/names.py). מאונדקסות, לא מוצגות.
+        "alt, "
         # אינדקס קידומות: החיפוש באתר מוסיף * לכל מילה, ובלי זה כל תו נוסף
         # שהמשתמש מקליד סורק מחדש חלק גדול מהאינדקס
         "tokenize='unicode61', prefix='2 3 4')"
     )
     conn.execute(
         "INSERT INTO product_fts(name, barcode, min_price, max_price, median, gap_pct, "
-        "n_stores, n_chains, min_chain, max_chain, min_date, max_date) "
-        "SELECT name, barcode, min_price, max_price, median, gap_pct, n_stores, n_chains, "
-        "min_chain, max_chain, min_date, max_date FROM product_stats "
-        "WHERE name IS NOT NULL AND name <> '' ORDER BY n_stores DESC"
+        "n_stores, n_chains, min_chain, max_chain, min_date, max_date, alt) "
+        "SELECT ps.name, ps.barcode, ps.min_price, ps.max_price, ps.median, ps.gap_pct, "
+        "ps.n_stores, ps.n_chains, ps.min_chain, ps.max_chain, ps.min_date, ps.max_date, "
+        "COALESCE(pa.alt, '') FROM product_stats ps "
+        "LEFT JOIN product_alt pa ON pa.barcode = ps.barcode "
+        "WHERE ps.name IS NOT NULL AND ps.name <> '' ORDER BY ps.n_stores DESC"
     )
+    # הטבלה נחוצה רק לבניית האינדקס; התוכן שלה כבר בתוכו
+    conn.execute("DROP TABLE IF EXISTS product_alt")
     conn.commit()
 
     precompute(conn, out_path)

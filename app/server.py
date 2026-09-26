@@ -125,6 +125,22 @@ for _cbs in CBS_NAMES:
         _ALIAS.setdefault(canon_key(_short), _cbs)
 
 
+
+# תיקונים ידניים לשמות שהרשתות מפרסמים ואינם מתאחדים אוטומטית. כל שורה
+# נבדקה מול שם הסניף והכתובת שלו (26.09.2026). אותה רשימה ב-site/data.js.
+# יקנעם עילית ויקנעם (מושבה) הם שני יישובים נפרדים, והכתובות לא מספיקות
+# כדי לדעת לאיזה מהם שייך סניף שכתוב בו רק "יקנעם", ולכן הוא לא מאוחד.
+MANUAL_CITY_ALIASES = {
+    "תל-אביב": "תל אביב - יפו",          # 6 סניפי ויקטורי: רוטשילד, אלנבי...
+    "תל אבית יפה": "תל אביב - יפו",      # שגיאת כתיב; ויקטורי, הארבעה 6
+    "טירת הכרמל": "טירת כרמל",           # השם הרשמי בלמ"ס
+    "גבעז זאב": "גבעת זאב",              # שגיאת כתיב; שם הסניף "גבעת זאב"
+    "מודיעין": "מודיעין-מכבים-רעות",     # עמק דותן, גינת זבולון: במודיעין
+}
+for _raw, _to in MANUAL_CITY_ALIASES.items():
+    _ALIAS[canon_key(_raw)] = _to
+
+
 def city_display(raw):
     """
     שם עיר להצגה. מחזיר (שם, הערה).
@@ -290,6 +306,53 @@ def api_meta(_p):
 #
 # הסינון חל רק על הכותרות. בחיפוש הרגיל המוצר ממשיך להופיע עם כל הנתונים
 # שפורסמו, כי הסתרה שלו הייתה הסתרת מידע שהרשת עצמה פרסמה.
+# ------------------------------------------------------------------ פערי עמוד הבית
+# הכותרת משווה את המחיר הנפוץ ברשת הזולה למחיר הנפוץ ברשת היקרה, ולא שני
+# סניפים קיצוניים. נמדד 26.09.2026: הקצה הזול של כמעט כל כותרת היה סניף
+# אחד מתחת לרשת שלו (אושר עד: פסק זמן 4.90 ב-22 סניפים, 2.90 באחד; סופר
+# פארם: פתי בר 14.90 ב-120 סניפים, 5.00 באחד). מחיר מקומי כזה אולי אמיתי,
+# אבל כותרת שנשענת עליו אינה השוואה הוגנת. הוא עדיין מופיע בעמוד המוצר.
+HEADLINE_MIN_BRANCHES = 3     # רשת נכנסת להשוואה רק אם 3 סניפים שלה מוכרים
+HEADLINE_MAX_GAP_PCT = 150.0  # פער גדול מזה אינו מוצג ככותרת עד שייבדק
+
+
+def chain_common_prices(codes):
+    """לכל ברקוד: {רשת: (מחיר נפוץ, מספר סניפים, תאריך אחרון)} בחלון הטריות."""
+    out = {}
+    if not codes:
+        return out
+    marks = ",".join("?" * len(codes))
+    per = {}
+    for r in q(f"SELECT barcode, chain, price, date FROM prices WHERE barcode IN ({marks}) "
+               f"AND date >= ?", list(codes) + [fresh_cutoff()]):
+        per.setdefault((r["barcode"], r["chain"]), []).append((r["price"], r["date"]))
+    for (bc, ch), lst in per.items():
+        if len(lst) < HEADLINE_MIN_BRANCHES:
+            continue
+        prices = sorted(p for p, _d in lst)
+        out.setdefault(bc, {})[ch] = (money(statistics.median(prices)), len(lst), max(d for _p, d in lst))
+    return out
+
+
+def apply_chain_gap(p, chains):
+    """מחליף את קצוות הכרטיס בקצוות ברמת רשת. מחזיר False אם אין השוואה."""
+    if not chains or len(chains) < 2:
+        return False
+    lo_ch = min(chains, key=lambda c: (chains[c][0], c))
+    hi_ch = max(chains, key=lambda c: (chains[c][0], c))
+    lo, hi = chains[lo_ch], chains[hi_ch]
+    if lo[0] <= 0 or hi[0] <= lo[0]:
+        return False
+    p.update({
+        "basis": "chain",
+        "min": lo[0], "max": hi[0], "min_chain": lo_ch, "max_chain": hi_ch,
+        "min_date": lo[2], "max_date": hi[2], "min_n": lo[1], "max_n": hi[1],
+        "gap_pct": round((hi[0] - lo[0]) / lo[0] * 100, 1),
+        "gap_shekel": money(hi[0] - lo[0]),
+    })
+    return True
+
+
 LOW_VS_MEDIAN = 0.40      # זול מ-40% מהחציון: כנראה לא אותו פריט
 HIGH_VS_MEDIAN = 2.5      # יקר מפי 2.5 מהחציון: אותו חשד
 MAX_DATE_GAP_DAYS = 3     # שני קצוות שנמדדו בימים רחוקים אינם השוואה
@@ -436,26 +499,34 @@ def api_home(_p):
         """
     ):
         popular.append(product_brief(r))
-    popular.sort(key=lambda p: -p["gap_pct"])
-
-    # פסילה לפני הצגה ככותרת. הסניפים נבדקים כאן ולא אחר כך, כי סניף בלי
-    # שם או בלי עיר הוא נתון שהקורא אינו יכול לאמת מול המציאות.
+    # פסילה לפני הצגה ככותרת: קודם מסנני החריגים על המוצר כולו, ואז
+    # השוואה ברמת רשת (ראו chain_common_prices) ותקרת פער.
     rejected = {}
     kept = []
+    common = chain_common_prices([p["barcode"] for p in popular])
     for p in popular:
         why = _headline_reject(p)
-        if why is None:
-            row = product_row(p["barcode"])
-            lo = store_meta(p["min_chain"], row["min_store"]) if row else None
-            hi = store_meta(p["max_chain"], row["max_store"]) if row else None
-            if _store_incomplete(lo) or _store_incomplete(hi):
-                why = "סניף בלי שם או בלי עיר"
-            else:
-                p["_min_store"], p["_max_store"] = lo, hi
+        if why is None and not apply_chain_gap(p, common.get(p["barcode"])):
+            why = "אין שתי רשתות עם 3 סניפים לפחות"
+        if why is None and p["gap_pct"] > HEADLINE_MAX_GAP_PCT:
+            why = f"פער מעל {HEADLINE_MAX_GAP_PCT:.0f}% בין רשתות"
         if why:
             rejected[why] = rejected.get(why, 0) + 1
             continue
         kept.append(p)
+    kept.sort(key=lambda p: -p["gap_pct"])
+    # גיוון: לכל היותר שני כרטיסים לאותו זוג רשתות. בלי זה, 26.09.2026, כל
+    # שמונת הכרטיסים היו אושר עד מול יילו. נכון, אבל נראה כמו מסע נגד רשת
+    # אחת ולא כמו תמונת שוק. מה שנדחה כאן חוזר אם אין מספיק כרטיסים אחרים.
+    pairs, diverse, rest = {}, [], []
+    for p in kept:
+        key = (p["min_chain"], p["max_chain"])
+        if pairs.get(key, 0) < 2:
+            pairs[key] = pairs.get(key, 0) + 1
+            diverse.append(p)
+        else:
+            rest.append(p)
+    kept = diverse + rest
 
     if rejected:
         total = sum(rejected.values())
@@ -468,15 +539,7 @@ def api_home(_p):
     for p in top:
         p["spark"] = spark_for(p["barcode"])
 
-    deal = None
-    if top:
-        d = dict(top[0])
-        d["min_store"] = d.pop("_min_store", None)
-        d["max_store"] = d.pop("_max_store", None)
-        deal = d
-    for p in top:
-        p.pop("_min_store", None)
-        p.pop("_max_store", None)
+    deal = dict(top[0]) if top else None
 
     # הטבלה נבנית באינדקס ומשותפת לאתר הסטטי; החישוב המקומי נשאר כגיבוי
     try:
@@ -493,6 +556,51 @@ def api_home(_p):
 def _fts_query(text):
     words = [w for w in re.split(r"[^\w֐-׿%]+", text) if w]
     return " ".join(f'"{w}"*' for w in words)
+
+
+_NAME_SPLIT = re.compile(r"[^0-9a-zא-ת]+")
+
+
+# מילה שלפניה "ללא", "בלי" או "נטול" היא שלילה: "ללא סוכר" אינו סוכר
+_NEGATIONS = ("ללא", "בלי", "נטול", "נטולת", "נטולי")
+
+
+def search_score(name, barcode, n_stores, words):
+    """
+    ניקוד תוצאה: מספר סניפים, כפול שלושה משקלים.
+    1. כמה ממילות החיפוש נמצאות בשם עצמו (ולא רק בשמות של רשתות אחרות).
+    2. האם המילה הראשונה בחיפוש היא המילה הראשונה בשם: בשמות מוצרים
+       בעברית המילה הראשונה היא סוג המוצר ("חלב תנובה", "ביצים L", "סוכר
+       לבן"), ובלי זה "חלב" החזיר שוקולד חלב ו"ביצים" פסטה עם ביצים.
+    3. שלילה: "ללא סוכר" אינו התאמה ל"סוכר".
+    קוד פנימי של רשת (קצר מ-8 ספרות) יורד לסוף.
+    """
+    toks = [t for t in _NAME_SPLIT.split((name or "").lower()) if t]
+    hits = 0
+    for w in words:
+        for i, t in enumerate(toks):
+            if t.startswith(w):
+                if i > 0 and toks[i - 1] in _NEGATIONS:
+                    continue
+                hits += 1
+                break
+    # התאמה מלאה של המילה הראשונה ("סוכר" = "סוכר לבן") שווה יותר מתחילית
+    # ("סוכר" בתוך "סוכריות"), אחרת סוכריות מנצחות את הסוכר
+    first = 1.0
+    if toks and words:
+        if toks[0] == words[0]:
+            first = 2.0
+        elif toks[0].startswith(words[0]):
+            first = 1.2
+    internal = len(str(barcode)) < 8
+    return (internal, -(n_stores or 0) * (0.5 + 0.5 * hits / max(1, len(words))) * first)
+
+
+def rerank(rows, text, limit):
+    words = [w for w in _NAME_SPLIT.split(text.lower()) if w]
+    if not words:
+        return rows[:limit]
+    return sorted(rows, key=lambda r: search_score(r["name"], r["barcode"], r["n_stores"], words))[:limit]
 
 
 def search_products(text, limit=30):
@@ -512,8 +620,11 @@ def search_products(text, limit=30):
             SELECT ps.* FROM product_fts f JOIN product_stats ps ON ps.barcode = f.barcode
             WHERE product_fts MATCH ? ORDER BY ps.n_stores DESC LIMIT ?
             """,
-            (_fts_query(text), limit),
+            # מאגר של 120 מועמדים: למילה נפוצה ("חלב") יש עשרות מוצרים
+            # פופולריים יותר שהיא רק מילה משנית בהם, לפני החלב עצמו
+            (_fts_query(text), max(120, limit * 4)),
         )
+        rows = rerank(list(rows), text, limit)
     except sqlite3.OperationalError:
         rows = []
     if not rows:
