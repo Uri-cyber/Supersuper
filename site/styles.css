@@ -231,7 +231,7 @@ html,body{max-width:100%;overflow-x:hidden}
   .kpi-val{font-size:34px}
   .hdr{padding:12px 14px}
   .hdr .nav{display:none}
-  .mob-nav{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;bottom:0;left:0;right:0;background:var(--ink);border-top:3px solid var(--ink);z-index:50;padding:6px}
+  .mob-nav{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);position:fixed;bottom:0;left:0;right:0;background:var(--ink);border-top:3px solid var(--ink);z-index:50;padding:6px}
   .mob-nav button{background:none;border:0;color:#fff;font-size:11px;font-weight:800;padding:8px 2px;border-radius:12px;display:flex;flex-direction:column;align-items:center;gap:3px}
   .mob-nav button.on{background:#fff;color:var(--ink)}
   body{padding-bottom:64px}
