@@ -272,17 +272,35 @@ function SqliteApi(cfg) {
       // בלי ORDER BY. השורות הוכנסו לאינדקס לפי מספר סניפים יורד, ו-FTS5
       // מחזיר לפי סדר ההכנסה, ולכן LIMIT מחזיר כבר את הנפוצים ביותר ועוצר שם.
       // עם ORDER BY, המנוע נאלץ לקרוא את כל רשימת ההתאמות - עשרות מגה למילה נפוצה.
-      // פי 4 מהדרוש, ואז סידור מחדש: מספר סניפים משוקלל בכמה ממילות
+      // 120 מועמדים (למילה נפוצה יש עשרות מוצרים פופולריים שהיא משנית
+      // בהם), ואז סידור מחדש: מספר סניפים משוקלל בכמה ממילות
       // החיפוש נמצאות בשם עצמו (ולא רק במילים של רשתות אחרות, עמודת alt).
       // קוד פנימי של רשת (קצר מ-8 ספרות) אינו ברקוד של מוצר ויורד לסוף.
       rows = await q("SELECT barcode, name, min_price, max_price, median, gap_pct, n_stores, " +
                      "n_chains, min_chain, max_chain, min_date, max_date FROM product_fts " +
-                     "WHERE product_fts MATCH ? LIMIT ?", [ftsQuery(text), Math.min(60, limit * 4)]);
+                     "WHERE product_fts MATCH ? LIMIT ?", [ftsQuery(text), Math.max(120, limit * 4)]);
+      // אותו ניקוד כמו search_score ב-app/server.py: מילות החיפוש בשם עצמו,
+      // מכפיל למילה הראשונה בשם ("חלב תנובה" ולא "שוקולד חלב"), ושלילה
+      // ("ללא סוכר" אינו סוכר).
       var words = text.toLowerCase().split(/[^0-9a-zא-ת]+/).filter(Boolean);
+      var NEG = { "ללא": 1, "בלי": 1, "נטול": 1, "נטולת": 1, "נטולי": 1 };
       var score = function (r) {
         var toks = String(r.name || "").toLowerCase().split(/[^0-9a-zא-ת]+/).filter(Boolean);
-        var hit = words.filter(function (w) { return toks.some(function (t) { return t.indexOf(w) === 0; }); }).length;
-        return (r.n_stores || 0) * (0.5 + 0.5 * (words.length ? hit / words.length : 1));
+        var hits = 0;
+        words.forEach(function (w) {
+          for (var i = 0; i < toks.length; i++) {
+            if (toks[i].indexOf(w) === 0) {
+              if (i > 0 && NEG[toks[i - 1]]) continue;
+              hits++; break;
+            }
+          }
+        });
+        var first = 1;
+        if (toks.length && words.length) {
+          if (toks[0] === words[0]) first = 2;
+          else if (toks[0].indexOf(words[0]) === 0) first = 1.2;
+        }
+        return (r.n_stores || 0) * (0.5 + 0.5 * (words.length ? hits / words.length : 1)) * first;
       };
       var internal = function (r) { return String(r.barcode).length < 8 ? 1 : 0; };
       rows.sort(function (a, b) { return (internal(a) - internal(b)) || (score(b) - score(a)); });

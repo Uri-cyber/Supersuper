@@ -561,23 +561,46 @@ def _fts_query(text):
 _NAME_SPLIT = re.compile(r"[^0-9a-zא-ת]+")
 
 
+# מילה שלפניה "ללא", "בלי" או "נטול" היא שלילה: "ללא סוכר" אינו סוכר
+_NEGATIONS = ("ללא", "בלי", "נטול", "נטולת", "נטולי")
+
+
+def search_score(name, barcode, n_stores, words):
+    """
+    ניקוד תוצאה: מספר סניפים, כפול שלושה משקלים.
+    1. כמה ממילות החיפוש נמצאות בשם עצמו (ולא רק בשמות של רשתות אחרות).
+    2. האם המילה הראשונה בחיפוש היא המילה הראשונה בשם: בשמות מוצרים
+       בעברית המילה הראשונה היא סוג המוצר ("חלב תנובה", "ביצים L", "סוכר
+       לבן"), ובלי זה "חלב" החזיר שוקולד חלב ו"ביצים" פסטה עם ביצים.
+    3. שלילה: "ללא סוכר" אינו התאמה ל"סוכר".
+    קוד פנימי של רשת (קצר מ-8 ספרות) יורד לסוף.
+    """
+    toks = [t for t in _NAME_SPLIT.split((name or "").lower()) if t]
+    hits = 0
+    for w in words:
+        for i, t in enumerate(toks):
+            if t.startswith(w):
+                if i > 0 and toks[i - 1] in _NEGATIONS:
+                    continue
+                hits += 1
+                break
+    # התאמה מלאה של המילה הראשונה ("סוכר" = "סוכר לבן") שווה יותר מתחילית
+    # ("סוכר" בתוך "סוכריות"), אחרת סוכריות מנצחות את הסוכר
+    first = 1.0
+    if toks and words:
+        if toks[0] == words[0]:
+            first = 2.0
+        elif toks[0].startswith(words[0]):
+            first = 1.2
+    internal = len(str(barcode)) < 8
+    return (internal, -(n_stores or 0) * (0.5 + 0.5 * hits / max(1, len(words))) * first)
+
+
 def rerank(rows, text, limit):
-    """
-    סדר תוצאות: מספר סניפים, משוקלל בכמה ממילות החיפוש נמצאות בשם המוצר
-    עצמו ולא רק במילים שרשתות אחרות כותבות. בלי זה "חלב תנובה" מצא יוגורט
-    שרשת אחת קוראת לו "מוצרי חלב תנובה", לפני חלב בקרטון.
-    """
     words = [w for w in _NAME_SPLIT.split(text.lower()) if w]
     if not words:
         return rows[:limit]
-
-    def score(r):
-        toks = [t for t in _NAME_SPLIT.split((r["name"] or "").lower()) if t]
-        hit = sum(1 for w in words if any(t.startswith(w) for t in toks))
-        internal = len(str(r["barcode"])) < 8
-        return (internal, -(r["n_stores"] or 0) * (0.5 + 0.5 * hit / len(words)))
-
-    return sorted(rows, key=score)[:limit]
+    return sorted(rows, key=lambda r: search_score(r["name"], r["barcode"], r["n_stores"], words))[:limit]
 
 
 def search_products(text, limit=30):
@@ -597,7 +620,9 @@ def search_products(text, limit=30):
             SELECT ps.* FROM product_fts f JOIN product_stats ps ON ps.barcode = f.barcode
             WHERE product_fts MATCH ? ORDER BY ps.n_stores DESC LIMIT ?
             """,
-            (_fts_query(text), min(60, limit * 4)),
+            # מאגר של 120 מועמדים: למילה נפוצה ("חלב") יש עשרות מוצרים
+            # פופולריים יותר שהיא רק מילה משנית בהם, לפני החלב עצמו
+            (_fts_query(text), max(120, limit * 4)),
         )
         rows = rerank(list(rows), text, limit)
     except sqlite3.OperationalError:
