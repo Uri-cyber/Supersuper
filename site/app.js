@@ -520,7 +520,7 @@ function screenHome() {
             "לפי הקובץ שפרסמה " + esc(d.max_chain) + " ב־" + dateHe(d.max_date) + ": " + nis(d.max) + ' ש"ח.<br>' +
             "לפי הקובץ שפרסמה " + esc(d.min_chain) + " ב־" + dateHe(d.min_date) + ": " + nis(d.min) + ' ש"ח.<br>') +
           "הפרש: " + nis(d.max - d.min) + ' ש"ח.</div>' +
-        '<div class="small" style="color:var(--purple-tint)">"המחיר הנפוץ" הוא החציון של סניפי הרשת. מחירים של סניפים בודדים נמצאים בעמוד המוצר.</div>' +
+        (d.basis === "chain" ? '<div class="small" style="color:var(--purple-tint)">"המחיר הנפוץ" הוא החציון של סניפי הרשת. מחירים של סניפים בודדים נמצאים בעמוד המוצר.</div>' : "") +
         '<div style="margin-top:2px">' + reportLink({
           name: d.name, barcode: d.barcode, chain: d.max_chain,
           branch: d.max_store ? d.max_store.branch : "המחיר הנפוץ ברשת",
