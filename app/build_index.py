@@ -11,11 +11,14 @@ import sqlite3
 import sys
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import names as namepick  # noqa: E402
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(os.path.dirname(BASE_DIR), "prices.db")
 
 # גרסת האינדקס - שינוי כאן מאלץ בנייה מחדש
-INDEX_VERSION = "8"
+INDEX_VERSION = "9"
 
 # חלון הטריות: השוואות נעשות רק בין מחירים מאותו חלון זמן
 FRESH_DAYS = 7
@@ -39,6 +42,12 @@ CREATE TABLE IF NOT EXISTS product_stats (
     date_min    TEXT, date_max TEXT           -- טווח התאריכים שהשוואה זו מבוססת עליו
 );
 CREATE INDEX IF NOT EXISTS idx_ps_stores ON product_stats(n_stores DESC);
+
+-- מילים שרשתות אחרות כותבות בשם המוצר ואינן בשם התצוגה. לחיפוש בלבד.
+CREATE TABLE IF NOT EXISTS product_alt (
+    barcode TEXT PRIMARY KEY,
+    alt     TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_ps_gap ON product_stats(gap_pct DESC);
 
 CREATE TABLE IF NOT EXISTS market_daily (
@@ -194,12 +203,16 @@ def build_product_stats(conn):
     log(f"בונה סטטיסטיקת מוצרים (השוואה על מחירים מ-{cutoff} ואילך)...")
     t0 = time.time()
     conn.execute("DELETE FROM product_stats")
+    conn.execute("DELETE FROM product_alt")
     names = dict(conn.execute("SELECT barcode, name FROM products"))
 
+    # השם נבחר מתוך כל השמות שהרשתות נותנות לברקוד, ולא לפי הרשת שנקלטה
+    # ראשונה. ראו app/names.py.
     cur = conn.execute(
-        "SELECT barcode, price, chain, store_id, date FROM prices ORDER BY barcode"
+        "SELECT barcode, price, chain, store_id, date, name FROM prices ORDER BY barcode"
     )
     batch, total, stale = [], 0, 0
+    alt_batch = []
     cur_code, rows = None, []
 
     def flush_group(code, group):
@@ -215,28 +228,38 @@ def build_product_stats(conn):
         hi = max(fresh_rows, key=lambda r: r[0])
         dates = [r[3] for r in fresh_rows]
         gap = ((hi[0] - lo[0]) / lo[0] * 100) if lo[0] > 0 else 0.0
+        variants = {}
+        for r in group:
+            if r[4]:
+                variants[r[4]] = variants.get(r[4], 0) + 1
+        display, alt = namepick.pick(list(variants.items()), names.get(code))
+        if alt:
+            alt_batch.append((code, alt))
         batch.append((
-            code, names.get(code), len(fresh_rows), len({r[1] for r in fresh_rows}),
+            code, display or names.get(code), len(fresh_rows), len({r[1] for r in fresh_rows}),
             lo[0], hi[0], median_of(prices), sum(prices) / len(prices), gap,
             lo[1], lo[2], lo[3], hi[1], hi[2], hi[3],
             is_fresh, min(dates), max(dates),
         ))
 
     def flush_batch():
-        nonlocal batch, total
+        nonlocal batch, total, alt_batch
         if batch:
             conn.executemany(
                 "INSERT OR REPLACE INTO product_stats VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 batch)
             total += len(batch)
             batch = []
+        if alt_batch:
+            conn.executemany("INSERT OR REPLACE INTO product_alt VALUES (?,?)", alt_batch)
+            alt_batch = []
 
-    for barcode, price, chain, store_id, date in cur:
+    for barcode, price, chain, store_id, date, pname in cur:
         if barcode != cur_code:
             if cur_code is not None:
                 flush_group(cur_code, rows)
             cur_code, rows = barcode, []
-        rows.append((price, chain, store_id, date))
+        rows.append((price, chain, store_id, date, pname))
         if len(batch) >= 5000:
             flush_batch()
     if cur_code is not None:
@@ -403,13 +426,16 @@ def build_search_index(conn):
     try:
         conn.execute("DROP TABLE IF EXISTS product_fts")
         conn.execute(
-            "CREATE VIRTUAL TABLE product_fts USING fts5(name, barcode UNINDEXED, tokenize='unicode61')"
+            "CREATE VIRTUAL TABLE product_fts USING fts5(name, barcode UNINDEXED, alt, "
+            "tokenize='unicode61')"
         )
         conn.execute(
             """
-            INSERT INTO product_fts(name, barcode)
-            SELECT ps.name, ps.barcode FROM product_stats ps
+            INSERT INTO product_fts(name, barcode, alt)
+            SELECT ps.name, ps.barcode, COALESCE(pa.alt, '') FROM product_stats ps
+            LEFT JOIN product_alt pa ON pa.barcode = ps.barcode
             WHERE ps.name IS NOT NULL AND ps.name <> ''
+            ORDER BY ps.n_stores DESC
             """
         )
         conn.commit()
@@ -465,7 +491,8 @@ def main(force=False):
         log("האינדקס מעודכן.")
         return 0
     # מבנה הטבלאות משתנה בין גרסאות אינדקס - בונים אותן מאפס
-    for tbl in ("product_stats", "market_daily", "market_products", "chain_stats", "city_stats", "ticker"):
+    for tbl in ("product_stats", "market_daily", "market_products", "chain_stats", "city_stats", "ticker",
+                "product_alt"):
         conn.execute(f"DROP TABLE IF EXISTS {tbl}")
     conn.execute("DROP TABLE IF EXISTS product_fts")
     conn.executescript(SCHEMA)
