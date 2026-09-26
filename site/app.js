@@ -1447,7 +1447,7 @@ function nearCard() {
         '<ol class="near-list">' + d.list.map(function (s, i) {
           return '<li class="near-row">' +
             '<span class="near-rank">' + (i + 1) + "</span>" +
-            '<span class="near-main"><span style="font-weight:900">' + esc(s.chain) + "</span> · " + esc(s.branch) + ", " + esc(s.city) +
+            '<span class="near-main"><span style="font-weight:900">' + esc(s.chain) + "</span> · " + branchCity(s) +
               (s.address && s.address !== UNKNOWN ? '<br><span class="small muted">' + esc(s.address) + "</span>" : "") +
               '<br><span class="small muted">כ־' + s.km + ' ק"מ ממרכז היישוב · מחירים מ־' + s.dates.map(dateHe).join(", ") +
               (s.complete ? "" : " · " + s.items + " מתוך " + d.available + " המוצרים") + "</span></span>" +
