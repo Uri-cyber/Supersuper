@@ -96,6 +96,21 @@ NOTE_NO_STORE_FILE = "הרשת לא מפרסמת קובץ סניפים"
 
 PRICE_RECORD_TAGS = {"item", "product", "line"}
 STORE_RECORD_TAGS = {"store", "branch"}
+# סיטי מרקט עוטפת כל סניף ב-SubChainStoreXMLObject, וכולם יחד בתוך <Store>
+# אחד. עם התגים הרגילים כל הקובץ נקרא כ"סניף" אחד בלי מזהה, ונזרק: 72
+# סניפים הופיעו כ"סניף 40" בלי עיר (נמצא 26.09.2026). מנסים קודם את התג
+# הפנימי, ורק אם אין כזה את הרגילים.
+STORE_RECORD_TAGS_INNER = {"subchainstorexmlobject"}
+
+# קיצורים מקובלים של שמות ערים, כפי שהם מופיעים בסוף שמות סניפים
+CITY_ABBREVIATIONS = {
+    'ת"א': "תל אביב - יפו", "ת״א": "תל אביב - יפו",
+    'ב"ש': "באר שבע", "ב״ש": "באר שבע",
+    'ראשל"צ': "ראשון לציון", 'ראש"לצ': "ראשון לציון", "ראשל״צ": "ראשון לציון",
+    'כ"ס': "כפר סבא", "כ״ס": "כפר סבא",
+    'פ"ת': "פתח תקווה", "פ״ת": "פתח תקווה",
+    'ר"ג': "רמת גן", "ר״ג": "רמת גן",
+}
 FILE_NAME_RE = re.compile(r"(\d{9,13})-(\d+)-(?:(\d+)-)?(\d{8})")
 
 
@@ -312,10 +327,34 @@ def pick(rec, *keys):
     return ""
 
 
+def city_from_store_name(name):
+    """
+    עיר ששם הסניף מסתיים בה, כשהרשת כתבה unknown בשדה העיר. רק שם יישוב
+    רשמי מלא או קיצור מקובל שמופיע בסוף השם, אחרי רווח או פסיק. זה לא
+    ניחוש: הרשת עצמה כתבה את העיר, רק בשדה הלא נכון. מחזיר (עיר, שארית).
+    """
+    t = re.sub(r"\s+", " ", name or "").strip().rstrip(".").strip()
+    candidates = {}
+    for full in set(CITIES.values()):
+        candidates[full] = full
+        short = full.split(" - ")[0].strip()
+        if short != full:
+            candidates.setdefault(short, full)
+    candidates.update(CITY_ABBREVIATIONS)
+    for token in sorted(candidates, key=len, reverse=True):
+        for sep in (" ", ","):
+            if t.endswith(sep + token):
+                return candidates[token], t[: -len(token)].rstrip(" ,")
+    return None, t
+
+
 def parse_store_file(path):
     """מחזיר רשימת (store_id, store_name, city, address, notes). מה שחסר בקובץ הרשת מסומן 'לא ידוע' ומצוין בהערות."""
     out = []
-    for _hdr, rec in iter_records(read_bytes(path), STORE_RECORD_TAGS):
+    data = read_bytes(path)
+    records = list(iter_records(data, STORE_RECORD_TAGS_INNER)) or \
+        list(iter_records(data, STORE_RECORD_TAGS))
+    for _hdr, rec in records:
         sid = to_store_id(pick(rec, "storeid", "storeno", "branchid", "store_id", "id"))
         if sid is None:
             continue
@@ -324,11 +363,22 @@ def parse_store_file(path):
         if not name:
             name = f"סניף {sid}"
             notes.append("שם הסניף חסר בקובץ הרשת")
-        city = normalize_city(pick(rec, "city", "cityname", "town"))
+        city = normalize_city(clean_text(pick(rec, "city", "cityname", "town")))
+        address = clean_text(pick(rec, "address", "street", "storeaddress"))
+        if not city:
+            found, rest = city_from_store_name(name)
+            if found:
+                city = found
+                notes.append("העיר נלקחה משם הסניף, כי בשדה העיר הרשת כתבה unknown")
+                # הכתובת: הקטע שאחרי הפסיק האחרון, אם יש בו מספר ואינו שם חברה
+                if not address and "," in rest:
+                    tail = rest.rsplit(",", 1)[1].strip()
+                    if re.search(r"\d", tail) and 'בע"מ' not in tail and "בע״מ" not in tail:
+                        address = tail
+                        notes.append("הכתובת נלקחה משם הסניף")
         if not city:
             city = UNKNOWN
             notes.append("העיר חסרה בקובץ הרשת")
-        address = clean_text(pick(rec, "address", "street", "storeaddress"))
         if not address:
             address = UNKNOWN
             notes.append("הכתובת חסרה בקובץ הרשת")
