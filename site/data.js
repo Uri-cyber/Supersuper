@@ -109,6 +109,13 @@ function SqliteApi(cfg) {
       .replace(/[־–]/g, "-").replace(/\s*-\s*/g, " - ")
       .replace(/\s+/g, " ").replace(/קרית /g, "קריית ");
   }
+  // תיקונים ידניים שנבדקו מול שם הסניף וכתובתו. אותה רשימה ב-app/server.py
+  // (MANUAL_CITY_ALIASES), שם גם ההסבר לכל שורה.
+  var MANUAL_CITY_ALIASES = {
+    "תל-אביב": "תל אביב - יפו", "תל אבית יפה": "תל אביב - יפו",
+    "טירת הכרמל": "טירת כרמל", "גבעז זאב": "גבעת זאב",
+    "מודיעין": "מודיעין-מכבים-רעות"
+  };
   // מיפוי איות בלבד (קרית/קריית, מקפים) לשם הרשמי. לא ניחוש של עיר חסרה.
   function buildAlias() {
     Object.keys(cbs).forEach(function (code) {
@@ -117,6 +124,9 @@ function SqliteApi(cfg) {
       if (!(k in alias)) alias[k] = full;
       var short = full.split(" - ")[0].trim();
       if (short !== full && !(canonKey(short) in alias)) alias[canonKey(short)] = full;
+    });
+    Object.keys(MANUAL_CITY_ALIASES).forEach(function (raw) {
+      alias[canonKey(raw)] = MANUAL_CITY_ALIASES[raw];
     });
   }
   function cityDisplay(raw) {
@@ -262,10 +272,21 @@ function SqliteApi(cfg) {
       // בלי ORDER BY. השורות הוכנסו לאינדקס לפי מספר סניפים יורד, ו-FTS5
       // מחזיר לפי סדר ההכנסה, ולכן LIMIT מחזיר כבר את הנפוצים ביותר ועוצר שם.
       // עם ORDER BY, המנוע נאלץ לקרוא את כל רשימת ההתאמות - עשרות מגה למילה נפוצה.
+      // פי 4 מהדרוש, ואז סידור מחדש: מספר סניפים משוקלל בכמה ממילות
+      // החיפוש נמצאות בשם עצמו (ולא רק במילים של רשתות אחרות, עמודת alt).
+      // קוד פנימי של רשת (קצר מ-8 ספרות) אינו ברקוד של מוצר ויורד לסוף.
       rows = await q("SELECT barcode, name, min_price, max_price, median, gap_pct, n_stores, " +
                      "n_chains, min_chain, max_chain, min_date, max_date FROM product_fts " +
-                     "WHERE product_fts MATCH ? LIMIT ?", [ftsQuery(text), limit]);
-      rows.sort(function (a, b) { return b.n_stores - a.n_stores; });
+                     "WHERE product_fts MATCH ? LIMIT ?", [ftsQuery(text), Math.min(60, limit * 4)]);
+      var words = text.toLowerCase().split(/[^0-9a-zא-ת]+/).filter(Boolean);
+      var score = function (r) {
+        var toks = String(r.name || "").toLowerCase().split(/[^0-9a-zא-ת]+/).filter(Boolean);
+        var hit = words.filter(function (w) { return toks.some(function (t) { return t.indexOf(w) === 0; }); }).length;
+        return (r.n_stores || 0) * (0.5 + 0.5 * (words.length ? hit / words.length : 1));
+      };
+      var internal = function (r) { return String(r.barcode).length < 8 ? 1 : 0; };
+      rows.sort(function (a, b) { return (internal(a) - internal(b)) || (score(b) - score(a)); });
+      rows = rows.slice(0, limit);
     } catch (e) { rows = []; }
     // אין נפילה חזרה ל-LIKE. כאן המסד נקרא דרך הרשת, וסריקה מלאה של
     // 250 אלף שורות פירושה משיכה של חלק גדול מהקובץ - חיפוש שלא מסתיים.

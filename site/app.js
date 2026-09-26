@@ -490,6 +490,8 @@ function paintSuggest() {
   box.innerHTML = suggestHtml();
   var sb = document.querySelector(".searchbox");
   if (sb) sb.classList.toggle("on", !!S.focused);
+  // כפתור הנגישות הצף ישב מעל תוצאות החיפוש בנייד. מוסתר רק בזמן החיפוש.
+  document.documentElement.classList.toggle("suggest-open", !!S.focused);
 }
 
 function screenHome() {
@@ -512,15 +514,17 @@ function screenHome() {
         '<div style="font-size:13px;font-weight:700;color:var(--purple-tint)">' + num(d.stores) + " סניפים · " + num(d.chains) + " רשתות</div>" +
         '<h2 style="margin:0"><button type="button" class="deal-name" data-open="' + esc(d.barcode) + '">' + esc(prettyName(d.name)) + "</button></h2>" +
         '<div style="font-size:14px;color:var(--purple-tint);font-weight:600;line-height:1.6">' +
-          "לפי הקובץ שפרסמה " + esc(d.max_chain) + " ב־" + dateHe(d.max_date) + ": " + nis(d.max) + ' ש"ח.<br>' +
-          "לפי הקובץ שפרסמה " + esc(d.min_chain) + " ב־" + dateHe(d.min_date) + ": " + nis(d.min) + ' ש"ח.<br>' +
+          (d.basis === "chain" ?
+            "המחיר הנפוץ ב־" + num(d.max_n) + " סניפי " + esc(d.max_chain) + ": " + nis(d.max) + ' ש"ח (עד ' + dateHe(d.max_date) + ").<br>" +
+            "המחיר הנפוץ ב־" + num(d.min_n) + " סניפי " + esc(d.min_chain) + ": " + nis(d.min) + ' ש"ח (עד ' + dateHe(d.min_date) + ").<br>" :
+            "לפי הקובץ שפרסמה " + esc(d.max_chain) + " ב־" + dateHe(d.max_date) + ": " + nis(d.max) + ' ש"ח.<br>' +
+            "לפי הקובץ שפרסמה " + esc(d.min_chain) + " ב־" + dateHe(d.min_date) + ": " + nis(d.min) + ' ש"ח.<br>') +
           "הפרש: " + nis(d.max - d.min) + ' ש"ח.</div>' +
-        '<div class="small" style="color:var(--purple-tint)">' +
-          esc(d.min_chain) + ": " + branchCity(d.min_store) +
-          " | " + esc(d.max_chain) + ": " + branchCity(d.max_store) + "</div>" +
+        '<div class="small" style="color:var(--purple-tint)">"המחיר הנפוץ" הוא החציון של סניפי הרשת. מחירים של סניפים בודדים נמצאים בעמוד המוצר.</div>' +
         '<div style="margin-top:2px">' + reportLink({
           name: d.name, barcode: d.barcode, chain: d.max_chain,
-          branch: d.max_store.branch, city: d.max_store.city,
+          branch: d.max_store ? d.max_store.branch : "המחיר הנפוץ ברשת",
+          city: d.max_store ? d.max_store.city : "",
           price: d.max, date: d.max_date
         }, "דווח על טעות", "color:var(--purple-tint)") + "</div>" +
       "</div>" +
@@ -548,13 +552,14 @@ function screenHome() {
     // הצבע נשאר כפס זיהוי דק בראש הכרטיס.
     return '<button class="pcard" data-open="' + esc(p.barcode) + '">' +
       '<div class="pbar" style="background:' + p.tint + '"></div>' +
-      '<div><div class="small muted">' + num(p.stores) + " סניפים · " + num(p.chains) + ' רשתות</div><div style="font-size:17px;font-weight:800;line-height:1.3">' + esc(prettyName(p.name)) + "</div></div>" +
+      '<div><div class="small muted">נמכר ב־' + num(p.stores) + " סניפים · " + num(p.chains) + ' רשתות</div><div style="font-size:17px;font-weight:800;line-height:1.3">' + esc(prettyName(p.name)) + "</div></div>" +
       spark +
       '<div style="display:flex;align-items:center;gap:8px;font-size:15px;flex-wrap:wrap" class="tnum">' +
         '<span style="background:var(--green);color:var(--ink);font-weight:900;padding:4px 10px;border-radius:8px">' + nis(p.min) + " ₪</span>" +
         '<span style="color:var(--muted-dark);font-weight:800">←</span>' +
         '<span style="color:var(--red);font-weight:900;text-decoration:line-through;text-decoration-thickness:2px">' + nis(p.max) + " ₪</span>" +
         '<span style="margin-inline-start:auto;font-size:12px;font-weight:900;color:#fff;background:var(--red);border-radius:8px;padding:4px 9px">פער ' + pctStr(p.gap_pct).replace("+", "") + "</span></div>" +
+      (p.basis === "chain" ? '<div class="small muted">' + esc(p.min_chain) + " · " + esc(p.max_chain) + "</div>" : "") +
       "</button>";
   }).join("");
 
@@ -573,7 +578,7 @@ function screenHome() {
         '<div style="position:absolute;width:44px;height:44px;background:#fff;left:8%;top:30%;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);animation:spin 12s linear infinite"></div></div>' +
       '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none" aria-hidden="true">₪</div>' +
       '<div class="hero-inner">' +
-        '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים עודכנו ב־" + dateHe(m.latest_date) + "</div>" +
+        '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים פרסמו מחירים ב־" + dateHe(m.latest_date) + "</div>" +
         "<h1><span class=\"sr-only\">איפה המוצר שלכם הכי זול היום?</span><span aria-hidden=\"true\">איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הלחם</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</span></h1>" +
         '<p style="margin:0;color:var(--light-dark);font-size:18px;text-align:center;max-width:560px">חפשו מוצר ותראו את המחיר בכל סניף בארץ, לפי הקבצים שהרשתות מחויבות לפרסם.</p>' +
         '<div class="searchwrap">' +
@@ -600,7 +605,7 @@ function screenHome() {
     '<section class="wrap" style="display:flex;flex-direction:column;gap:18px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
         '<h2 class="tag-yellow">🔥 הפערים הגדולים היום</h2>' +
-        '<div class="small" style="color:#fff;background:var(--ink);padding:6px 12px;border-radius:999px;font-weight:600">הפער = ההפרש בין הסניף הזול ליקר</div>' +
+        '<div class="small" style="color:#fff;background:var(--ink);padding:6px 12px;border-radius:999px;font-weight:600">הפער = ההפרש בין המחיר הנפוץ ברשת הזולה ביותר לזה שברשת היקרה ביותר</div>' +
       "</div>" +
       '<div class="pgrid">' + pop + "</div>" +
       '<div class="note">' + esc(freshnessNote()) + "</div>" +
@@ -798,7 +803,12 @@ function screenProduct() {
   // top 10 table
   // התאריך נמדד על עשר השורות שבטבלה, לא על 1,727 הסניפים. אם כולן מאותו יום
   // מספיק לכתוב אותו פעם אחת מעל, ואם לא - כל שורה חייבת להציג את היום שלה.
-  var top10 = d.branches.slice(0, 10);
+  // סניף שהרשת לא פרסמה את מיקומו ("סיטי מרקט סניף 40") לא שימושי ברשימת
+  // "איפה לקנות". הוא נשאר בטבלה המלאה, וכאן נאמר כמה כאלה דולגו.
+  var located = d.branches.filter(function (b) { return b.city !== UNKNOWN; });
+  var top10 = located.slice(0, 10);
+  var lastTop = top10.length ? top10[top10.length - 1].price : Infinity;
+  var skippedUnknown = d.branches.filter(function (b) { return b.city === UNKNOWN && b.price <= lastTop; }).length;
   var topDates = [];
   top10.forEach(function (b) { if (topDates.indexOf(b.date) < 0) topDates.push(b.date); });
   var oneDate = topDates.length === 1 ? topDates[0] : null;
@@ -879,6 +889,7 @@ function screenProduct() {
         hist +
         '<section class="card" style="display:flex;flex-direction:column;gap:14px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2 class="h3">10 הסניפים הזולים</h2>' + (oneDate ? '<span class="small muted tnum">כל המחירים מיום ' + dateHe(oneDate) + '</span>' : "") + '<span class="small" style="color:#fff;background:var(--purple);padding:3px 10px;border-radius:999px;font-weight:700">' + esc(S.city || "כל הארץ") + "</span></div>" +
           '<div style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th scope="col">#</th><th scope="col">רשת</th><th scope="col">סניף</th><th scope="col" class="col-opt">עיר</th><th scope="col">מחיר</th>' + (oneDate ? "" : '<th scope="col" class="col-opt">תאריך</th>') + '<th scope="col">מול חציון</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
+          (skippedUnknown ? '<div class="note">' + skippedUnknown + " סניפים זולים נוספים לא מוצגים כאן כי הרשת לא פרסמה את מיקומם. הם מופיעים בטבלה המלאה.</div>" : "") +
           '<div class="note">' + esc(freshnessNote()) + "</div></section>" +
       "</div></div></div>";
 }
