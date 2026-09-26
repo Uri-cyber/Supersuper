@@ -786,6 +786,16 @@ def basket_analysis(entries, city=None, include_old=False):
         best_list.append({**info[k], "total": money(total(k, have)), "items": len(have),
                           "complete": len(have) == len(available),
                           "dates": dates})
+    # כל הסניפים, ל"הזול בסביבה": הסינון לפי מרחק נעשה בדפדפן, כי המיקום
+    # של המשתמש לא עוזב אותו
+    all_stores = []
+    for k in stores:
+        have = [b for b in available if b in stores[k]]
+        if not have:
+            continue
+        all_stores.append({**info[k], "total": money(total(k, have)), "items": len(have),
+                           "complete": len(have) == len(available),
+                           "dates": sorted({stores[k][b][1] for b in have})})
 
     per_item = {}
     for b in available:
@@ -857,6 +867,7 @@ def basket_analysis(entries, city=None, include_old=False):
         "chain_totals": chain_list,
         "city": city or "",
         "store_count": len(stores),
+        "all_stores": all_stores,
         "meta": data_meta(),
     }
 
@@ -1035,9 +1046,30 @@ def api_quiz(_p):
     return {"day": day, "questions": items}
 
 
+# ------------------------------------------------------------------ מעקב מחירים
+def api_watch(p):
+    """הסדרה הארצית (שתי הנקודות האחרונות) לכל מוצר במעקב. הרשימה עצמה
+    נשמרת בדפדפן של המשתמש, השרת רק עונה על הברקודים שנשאל עליהם."""
+    raw = p.get("barcodes", [""])[0]
+    codes = [c.strip() for c in raw.split("|") if c.strip()][:200]
+    series, names = {}, {}
+    if codes:
+        marks = ",".join("?" * len(codes))
+        for r in q(f"SELECT barcode, date, median, n_stores FROM market_daily "
+                   f"WHERE barcode IN ({marks}) ORDER BY barcode, date", codes):
+            lst = series.setdefault(r["barcode"], [])
+            lst.append({"date": r["date"], "median": money(r["median"]), "n_stores": r["n_stores"]})
+            if len(lst) > 2:
+                del lst[0]
+        for r in q(f"SELECT barcode, name, n_stores FROM product_stats WHERE barcode IN ({marks})", codes):
+            names[r["barcode"]] = {"name": r["name"] or UNKNOWN, "stores": r["n_stores"]}
+    return {"series": series, "names": names, "meta": data_meta()}
+
+
 ROUTES_GET = {
     "/api/meta": api_meta,
     "/api/quiz": api_quiz,
+    "/api/watch": api_watch,
     "/api/home": api_home,
     "/api/search": api_search,
     "/api/suggest": api_search,

@@ -1,0 +1,8 @@
+{
+  "name": "mehiron-site",
+  "private": true,
+  "description": "בדיקות לחלקים הטהורים של האתר הסטטי (geo.js, alerts.js). אין שלב בנייה.",
+  "scripts": {
+    "test": "node --test \"tests/*.test.js\""
+  }
+}

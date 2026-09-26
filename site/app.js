@@ -33,6 +33,10 @@ var S = {
   quiz: null,             // {day, questions[]} מהשרת או מהקובץ
   quizState: null,        // ההתקדמות של היום, נשמרת בדפדפן
   quizInput: "",
+  near: { mode: "city", city: "", coords: null, label: "", radius: 10, data: null, loading: false, error: null },
+  geo: null,              // קואורדינטות יישובים, נטען פעם אחת
+  watch: [],              // [{barcode,name,tint}] מוצרים במעקב
+  alerts: null,           // תוצאת ההשוואה של המעקב
   marketQuery: "",
   filterOpen: (typeof window !== "undefined" && window.innerWidth > 820),
   mx: 0, my: 0,
@@ -58,6 +62,13 @@ var LS_CITY = "mehiron.city";
 // ------------------------------------------------------------------ utils
 // שמות המוצרים מגיעים מהרשתות עם מספר דבוק לאות: "בפלסטיק500 מ\"ל".
 // מפרידים בתצוגה בלבד. הערך במסד לא משתנה, וגם לא החיפוש.
+/* "סניף, עיר", בלי לחזור על העיר כשהסניף נקרא על שמה */
+function branchCity(st) {
+  if (!st) return esc(UNKNOWN);
+  var b = st.branch || UNKNOWN, c = st.city || "";
+  return esc(b) + (c && c !== b ? ", " + esc(c) : "");
+}
+
 function prettyName(s) {
   return String(s == null ? "" : s)
     .replace(/([\u0590-\u05FF])(\d)/g, "$1 $2")
@@ -156,6 +167,86 @@ function loadQuizState() {
 function saveQuizState() {
   try { localStorage.setItem(LS_QUIZ, JSON.stringify(S.quizState)); } catch (e) {}
 }
+
+// ------------------------------------------------------------------ watch state
+var LS_WATCH = "mehiron.watch";
+function loadWatch() {
+  try {
+    var v = JSON.parse(localStorage.getItem(LS_WATCH) || "[]");
+    if (Array.isArray(v)) S.watch = v.filter(function (w) { return w && w.barcode; });
+  } catch (e) {}
+}
+function saveWatch() {
+  try { localStorage.setItem(LS_WATCH, JSON.stringify(S.watch)); } catch (e) {}
+}
+function toggleWatch(p) {
+  var was = MehironAlerts.isWatched(S.watch, p.barcode);
+  S.watch = MehironAlerts.toggleWatch(S.watch, p);
+  saveWatch();
+  S.alerts = null;
+  toast(was ? "הוסר מהמעקב" : "נוסף למעקב. השינויים יופיעו ב\"המעקב שלי\".");
+}
+function loadAlerts() {
+  if (!S.watch.length) { S.alerts = { changed: [], unchanged: [], missing: [], latest: null }; return; }
+  API.watch(S.watch.map(function (w) { return w.barcode; })).then(function (d) {
+    var latest = (d.meta && d.meta.latest_date) || (S.meta && S.meta.latest_date) || null;
+    // שם מעודכן מהנתונים, אם המוצר שונה שם מאז שנשמר
+    var list = S.watch.map(function (w) {
+      var n = d.names && d.names[w.barcode];
+      return { barcode: w.barcode, name: (n && n.name) || w.name, tint: w.tint };
+    });
+    S.alerts = MehironAlerts.diffWatch(list, d.series, latest);
+    render();
+  }).catch(function (e) { S.alerts = { error: e.message || String(e) }; render(); });
+}
+
+// ------------------------------------------------------------------ near me
+function loadGeo() {
+  if (S.geo) return Promise.resolve(S.geo);
+  return fetch("cities_geo.json").then(function (r) { return r.json(); }).then(function (g) { S.geo = g; return g; });
+}
+function nearOrigin() {
+  var n = S.near;
+  if (n.mode === "gps" && n.coords) return n.coords;
+  if (n.city && S.geo) return MehironGeo.cityCoord(n.city, S.geo);
+  return null;
+}
+function loadNear() {
+  var n = S.near;
+  if (!S.cart.length) { n.error = "הסל ריק. הוסיפו מוצרים ואז חפשו בסביבה."; n.data = null; render(); return; }
+  n.loading = true; n.error = null; render();
+  loadGeo().then(function () {
+    var origin = nearOrigin();
+    if (!origin) {
+      n.loading = false;
+      n.error = n.mode === "gps" ? "לא התקבל מיקום." : "ליישוב הזה אין קואורדינטות ברשימה. בחרו יישוב סמוך.";
+      render(); return;
+    }
+    return API.basket(S.cart, null, S.includeOld).then(function (d) {
+      if (d.error) { n.error = d.error; n.loading = false; render(); return; }
+      var r = MehironGeo.rankNearby(d.all_stores || [], origin, n.radius, S.geo, 5);
+      r.available = d.available; r.missing = d.missing || []; r.meta = d.meta;
+      n.data = r; n.loading = false; render();
+    });
+  }).catch(function (e) { n.loading = false; n.error = "החישוב נכשל: " + (e.message || e); render(); });
+}
+function useMyLocation() {
+  var n = S.near;
+  if (!navigator.geolocation) { toast("הדפדפן לא תומך במיקום. בחרו יישוב."); return; }
+  n.loading = true; n.error = null; render();
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    n.coords = [pos.coords.latitude, pos.coords.longitude];
+    n.mode = "gps";
+    loadGeo().then(function (g) {
+      var near = MehironGeo.nearestCity(n.coords, g, 60);
+      n.label = near ? "ליד " + near.city : "המיקום שלי";
+      loadNear();
+    });
+  }, function () {
+    n.loading = false; n.error = "לא קיבלנו הרשאת מיקום. אפשר לבחור יישוב במקום."; render();
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+}
+
 function loadQuiz() {
   API.quiz().then(function (d) {
     S.quiz = (d && d.questions && d.questions.length) ? d : { missing: true };
@@ -234,7 +325,7 @@ function shareQuiz() {
    באזור חי אומרת לו איפה הוא נמצא עכשיו. */
 function announceScreen() {
   var names = { home: "עמוד הבית", product: "עמוד מוצר", market: "בורסת המחירים",
-                scan: "בדיקת קבלה", cart: "הסל שלי", quiz: "השאלון היומי" };
+                scan: "בדיקת קבלה", cart: "הסל שלי", quiz: "השאלון היומי", alerts: "המעקב שלי" };
   var live = document.getElementById("a11y-live");
   if (!live) return;
   var txt = names[S.screen] || "";
@@ -310,10 +401,11 @@ function header() {
     "</nav></header>";
 }
 
-/* בדיקת הקבלה מוסתרת כרגע: הקריאה מצילום אינה מדויקת מספיק. הקוד נשאר
-   שלם, וכדי להחזיר את המסך משנים את הדגל הזה ל-true. כשהוא כבוי, אין
-   כניסה מהתפריטים ומעמוד הבית, וכתובת #scan מובילה לעמוד הבית. */
-var SCAN_ENABLED = false;
+/* בדיקת הקבלה. הדגל מאפשר להסתיר את המסך בלי למחוק קוד: כשהוא כבוי אין
+   כניסה מהתפריטים ומעמוד הבית, וכתובת #scan מובילה לעמוד הבית.
+   הקריאה מצילום אינה מדויקת תמיד, ולכן המסך מבקש לעבור על השורות
+   שזוהו לפני הבדיקה. הדבקת שורות טקסט עובדת היטב. */
+var SCAN_ENABLED = true;
 
 function mobileNav() {
   var c = cartCount();
@@ -348,7 +440,11 @@ function tape() {
     'aria-label="' + (S.tapePaused ? "הפעלת הגלילה של סרגל השינויים" : "עצירת הגלילה של סרגל השינויים") + '">' +
     (S.tapePaused ? "▶" : "❚❚") + "</button>";
   return '<div class="tape' + paused + '" role="region" aria-label="שינויי מחיר חדים היום">' +
-    btn + '<div class="tape-inner">' + html + html + "</div></div>";
+    btn + '<div class="tape-inner">' + html +
+    // aria-hidden על כל פריט ולא על עוטף: עוטף עם display:contents מאבד
+    // את ה-aria-hidden בחלק מהדפדפנים (ספארי ישן)
+    html.replace(/data-open="/g, 'tabindex="-1" aria-hidden="true" data-open="') +
+    "</div></div>";
 }
 
 function freshnessNote() {
@@ -409,19 +505,19 @@ function screenHome() {
   if (h.deal) {
     var d = h.deal;
     deal = '<section class="wrap" style="margin-top:-56px;padding-bottom:0">' +
-      '<div class="deal" data-open="' + esc(d.barcode) + '">' +
+      '<div class="deal" data-open="' + esc(d.barcode) + '" tabindex="-1">' +
       '<div class="deal-clip"><div class="deal-shine"></div></div>' +
       '<div style="position:absolute;top:-14px;right:22px;background:var(--red);border:3px solid var(--ink);color:#fff;font-size:12px;font-weight:900;padding:3px 12px;border-radius:999px;transform:rotate(-3deg)">⚡ הפער של היום</div>' +
       '<div style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:4px;padding-top:6px">' +
         '<div style="font-size:13px;font-weight:700;color:var(--purple-tint)">' + num(d.stores) + " סניפים · " + num(d.chains) + " רשתות</div>" +
-        '<div style="font-size:26px;font-weight:900;line-height:1.1">' + esc(prettyName(d.name)) + "</div>" +
+        '<h2 style="margin:0"><button type="button" class="deal-name" data-open="' + esc(d.barcode) + '">' + esc(prettyName(d.name)) + "</button></h2>" +
         '<div style="font-size:14px;color:var(--purple-tint);font-weight:600;line-height:1.6">' +
           "לפי הקובץ שפרסמה " + esc(d.max_chain) + " ב־" + dateHe(d.max_date) + ": " + nis(d.max) + ' ש"ח.<br>' +
           "לפי הקובץ שפרסמה " + esc(d.min_chain) + " ב־" + dateHe(d.min_date) + ": " + nis(d.min) + ' ש"ח.<br>' +
           "הפרש: " + nis(d.max - d.min) + ' ש"ח.</div>' +
         '<div class="small" style="color:var(--purple-tint)">' +
-          esc(d.min_chain) + ": " + esc(d.min_store.branch) + ", " + esc(d.min_store.city) +
-          " | " + esc(d.max_chain) + ": " + esc(d.max_store.branch) + ", " + esc(d.max_store.city) + "</div>" +
+          esc(d.min_chain) + ": " + branchCity(d.min_store) +
+          " | " + esc(d.max_chain) + ": " + branchCity(d.max_store) + "</div>" +
         '<div style="margin-top:2px">' + reportLink({
           name: d.name, barcode: d.barcode, chain: d.max_chain,
           branch: d.max_store.branch, city: d.max_store.city,
@@ -430,7 +526,7 @@ function screenHome() {
       "</div>" +
       '<div style="display:flex;align-items:center;gap:14px" class="tnum">' +
         '<div style="background:var(--green);color:var(--ink);border:3px solid var(--ink);border-radius:16px;padding:10px 16px;text-align:center"><div style="font-size:11px;font-weight:800">' + esc(d.min_chain) + '</div><div style="font-size:30px;font-weight:900;line-height:1">' + nis(d.min) + "</div></div>" +
-        '<div style="font-size:26px;font-weight:900">←</div>' +
+        '<div style="font-size:26px;font-weight:900" aria-hidden="true">←</div>' +
         '<div style="background:var(--red);color:#fff;border:3px solid var(--ink);border-radius:16px;padding:10px 16px;text-align:center"><div style="font-size:11px;font-weight:800">' + esc(d.max_chain) + '</div><div style="font-size:30px;font-weight:900;line-height:1;text-decoration:line-through;text-decoration-thickness:3px">' + nis(d.max) + "</div></div>" +
       "</div></div></section>";
   }
@@ -466,7 +562,7 @@ function screenHome() {
     return '<button class="chip" style="border-color:' + c.tint + '" data-open="' + esc(c.barcode) + '">' + esc(prettyName(c.name)) + "</button>";
   }).join("");
 
-  return '<main id="main">' +
+  return '<div>' +
     '<div class="hero" id="hero">' +
       '<div class="hero-layer" style="inset:-40px;transform:translate(' + px1 + "," + py1 + ')">' +
         '<div style="position:absolute;width:340px;height:340px;background:var(--green);left:-80px;top:-100px;animation:blob 9s ease-in-out infinite"></div>' +
@@ -475,10 +571,10 @@ function screenHome() {
         '<div style="position:absolute;width:120px;height:120px;border-radius:30px;background:var(--yellow);right:12%;top:20px;animation:spin 24s linear infinite"></div>' +
         '<div style="position:absolute;width:70px;height:70px;border-radius:50%;background:var(--purple);left:14%;bottom:60px;animation:float 5s ease-in-out infinite"></div>' +
         '<div style="position:absolute;width:44px;height:44px;background:#fff;left:8%;top:30%;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);animation:spin 12s linear infinite"></div></div>' +
-      '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none">₪</div>' +
+      '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none" aria-hidden="true">₪</div>' +
       '<div class="hero-inner">' +
         '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים עודכנו ב־" + dateHe(m.latest_date) + "</div>" +
-        "<h1>איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הלחם</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</h1>" +
+        "<h1><span class=\"sr-only\">איפה המוצר שלכם הכי זול היום?</span><span aria-hidden=\"true\">איפה <span class=\"rot\"><span><span style='display:block'>החלב</span><span style='display:block'>הלחם</span><span style='display:block'>הקפה</span><span style='display:block'>השמן</span><span style='display:block'>החלב</span></span></span><br>הכי זול היום?</span></h1>" +
         '<p style="margin:0;color:var(--light-dark);font-size:18px;text-align:center;max-width:560px">חפשו מוצר ותראו את המחיר בכל סניף בארץ, לפי הקבצים שהרשתות מחויבות לפרסם.</p>' +
         '<div class="searchwrap">' +
           '<div class="searchbox' + (S.focused ? " on" : "") + '">' +
@@ -497,7 +593,8 @@ function screenHome() {
           '<span style="width:44px;height:44px;border-radius:12px;background:var(--ink);color:var(--yellow);display:grid;place-items:center;font-size:22px;flex:none">▦</span>' +
           '<span style="display:flex;flex-direction:column;gap:2px"><span style="font-size:16px;font-weight:900">יש לכם קבלה מהסופר? הדביקו אותה</span><span style="font-size:13px;font-weight:600">נראה לכם כמה הייתם חוסכים על אותו סל בדיוק</span></span>' +
           '<span style="font-size:22px;font-weight:900;margin-inline-start:6px">←</span></button>' : "") +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' + chips + "</div>" +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' + chips +
+          (S.watch.length ? '<button class="chip" data-go="alerts">🔔 המעקב שלי (' + S.watch.length + ")</button>" : "") + "</div>" +
       "</div></div>" +
     deal +
     '<section class="wrap" style="display:flex;flex-direction:column;gap:18px">' +
@@ -507,7 +604,7 @@ function screenHome() {
       "</div>" +
       '<div class="pgrid">' + pop + "</div>" +
       '<div class="note">' + esc(freshnessNote()) + "</div>" +
-    "</section></main>";
+    "</section></div>";
 }
 
 // ------------------------------------------------------------------ product
@@ -545,7 +642,7 @@ function screenProduct() {
         "<br>עודכן " + dateHe(st.min_branch.date) + "</div></div>" +
     '<div class="kpi" style="background:var(--red);animation-delay:.08s"><div style="font-size:13px;font-weight:800;color:#fff">הגבוה ביותר שפורסם' + (S.city ? "" : " בארץ") + '</div>' +
       '<div class="kpi-val tnum" style="color:#fff"><span data-count="' + st.max + '" data-key="pmax">' + nis(st.max) + '</span><span style="font-size:18px;font-weight:700"> ₪</span></div>' +
-      '<div class="small" style="color:var(--red-tint);font-weight:600;line-height:1.4">' + esc(st.max_branch.chain) + " · " + esc(st.max_branch.branch) + ", " + esc(st.max_branch.city) +
+      '<div class="small" style="color:#fff;font-weight:600;line-height:1.4">' + esc(st.max_branch.chain) + " · " + esc(st.max_branch.branch) + ", " + esc(st.max_branch.city) +
         (st.max_ties > 1 ? " ועוד " + (st.max_ties - 1) + " סניפים באותו מחיר" : "") +
         "<br>עודכן " + dateHe(st.max_branch.date) + "</div></div>" +
     '<div class="kpi" style="background:#fff;animation-delay:.16s"><div style="font-size:13px;font-weight:800;color:var(--muted)">חציון</div>' +
@@ -661,7 +758,7 @@ function screenProduct() {
       labels += '<div style="position:absolute;left:' + (X(i) / W * 100) + '%;top:86%;transform:translateX(' + shift + ');font-size:11px;font-weight:700;white-space:nowrap">' + dateHe(hs[i].date) + "</div>";
     });
     hist = '<section class="card" style="display:flex;flex-direction:column;gap:14px">' +
-      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h3 class="h3">היסטוריית מחיר' + (nSparse ? "" : " (חציון ארצי)") + '</h3><span class="small muted">' + hs.length + " ימים</span></div>" +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px"><h2 class="h3">היסטוריית מחיר' + (nSparse ? "" : " (חציון ארצי)") + '</h2><span class="small muted">' + hs.length + " ימים</span></div>" +
       '<div style="position:relative;direction:ltr">' +
       '<svg aria-hidden="true" focusable="false" viewBox="0 0 ' + W + " " + H + '" style="width:100%;height:auto;display:block">' +
         '<line x1="40" y1="20" x2="590" y2="20" stroke="var(--div2)" stroke-dasharray="4 4"/>' +
@@ -689,7 +786,7 @@ function screenProduct() {
       "</section>";
   } else {
     // אין גרף כשהמוצר לא נמצא במעקב, ולא בגלל שההיסטוריה "עוד תיצבר"
-    hist = '<section class="card"><h3 class="h3">היסטוריית מחיר</h3>' +
+    hist = '<section class="card"><h2 class="h3">היסטוריית מחיר</h2>' +
       '<p class="note" style="margin-top:10px">' +
       (d.history.length === 1
         ? 'יש רק יום אחד של נתונים למוצר הזה, וזה לא מספיק לגרף.'
@@ -732,7 +829,7 @@ function screenProduct() {
         '<span class="small muted">' + (S.city || "כל הארץ") + (S.chains ? " · " + S.chains.length + " רשתות" : "") + "</span>" +
         '<span class="filter-arrow">' + (S.filterOpen ? "▲" : "▼") + "</span></button>" +
       '<div class="filter-body' + (S.filterOpen ? "" : " hide") + '">' +
-      '<div style="display:flex;flex-direction:column;gap:8px"><label class="small muted" style="font-weight:700">עיר</label>' +
+      '<div style="display:flex;flex-direction:column;gap:8px"><label for="citysel" class="small muted" style="font-weight:700">עיר</label>' +
         '<select id="citysel">' + cityOpts + "</select></div>" +
       '<div style="display:flex;flex-direction:column;gap:6px">' +
         '<div style="display:flex;justify-content:space-between;align-items:baseline"><label class="small muted" style="font-weight:700">רשתות</label>' +
@@ -759,23 +856,28 @@ function screenProduct() {
             "<span>" + esc(p.barcode) + "</span></div></div>" +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;position:relative">' +
           '<div style="position:relative"><button class="btn" style="background:' + (inCart ? "var(--green)" : "var(--ink)") + ";color:" + (inCart ? "var(--ink)" : "#fff") + ';box-shadow:4px 4px 0 #fff" data-add="' + esc(p.barcode) + '">' + (inCart ? "✓ בסל" : "+ הוסף לסל") + "</button>" +
-            (S.burst ? confettiHtml() : "") + "</div></div></div>" +
+            (S.burst ? confettiHtml() : "") + "</div>" +
+          (function () {
+            var on = MehironAlerts.isWatched(S.watch, p.barcode);
+            return '<button class="btn" style="background:' + (on ? "var(--yellow)" : "#fff") + ';box-shadow:4px 4px 0 #fff" data-watch="' + esc(p.barcode) + '" aria-pressed="' + (on ? "true" : "false") + '">' +
+              (on ? "🔔 במעקב" : "🔔 עקבו אחרי המחיר") + "</button>";
+          })() + "</div></div>" +
       kpis +
       (warnings.length ? '<div class="warn">' + warnings.map(esc).join("<br>") + "</div>" : "") +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">' +
-        '<section class="card" style="display:flex;flex-direction:column;gap:16px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">מחיר ממוצע לפי רשת</h3><span class="small muted">מהזול ← ליקר</span></div>' +
+        '<section class="card" style="display:flex;flex-direction:column;gap:16px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2 class="h3">מחיר ממוצע לפי רשת</h2><span class="small muted">מהזול ← ליקר</span></div>' +
           '<div class="bars">' + bars + "</div>" +
           (d.chain_rows.length > BAR_MAX ? '<div class="note">מוצגות ' + BAR_MAX + " הרשתות הזולות מתוך " + d.chain_rows.length + " שמוכרות את המוצר.</div>" : "") +
           "</section>" +
         (d.city_rows.length
-          ? '<section class="card" style="display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">ערים לפי מחיר</h3><span class="small muted">' + d.city_rows.length + ' ערים</span></div>' +
+          ? '<section class="card" style="display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2 class="h3">ערים לפי מחיר</h2><span class="small muted">' + d.city_rows.length + ' ערים</span></div>' +
             '<div style="display:flex;flex-direction:column;gap:11px">' + cityList + "</div>" +
             '<div class="note">המחיר הוא הזול ביותר שנמצא בעיר, לא ממוצע.' +
             (d.city_rows.length > CITY_MAX ? " מוצגות " + CITY_MAX + " הערים הזולות מתוך " + d.city_rows.length + "." : "") +
             "</div></section>"
           : "") +
         hist +
-        '<section class="card" style="display:flex;flex-direction:column;gap:14px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline"><h3 class="h3">10 הסניפים הזולים</h3>' + (oneDate ? '<span class="small muted tnum">כל המחירים מיום ' + dateHe(oneDate) + '</span>' : "") + '<span class="small" style="color:#fff;background:var(--purple);padding:3px 10px;border-radius:999px;font-weight:700">' + esc(S.city || "כל הארץ") + "</span></div>" +
+        '<section class="card" style="display:flex;flex-direction:column;gap:14px;min-width:0"><div style="display:flex;justify-content:space-between;align-items:baseline"><h2 class="h3">10 הסניפים הזולים</h2>' + (oneDate ? '<span class="small muted tnum">כל המחירים מיום ' + dateHe(oneDate) + '</span>' : "") + '<span class="small" style="color:#fff;background:var(--purple);padding:3px 10px;border-radius:999px;font-weight:700">' + esc(S.city || "כל הארץ") + "</span></div>" +
           '<div style="overflow-x:auto"><table class="tbl-opt"><thead><tr><th scope="col">#</th><th scope="col">רשת</th><th scope="col">סניף</th><th scope="col" class="col-opt">עיר</th><th scope="col">מחיר</th>' + (oneDate ? "" : '<th scope="col" class="col-opt">תאריך</th>') + '<th scope="col">מול חציון</th></tr></thead><tbody>' + rows + "</tbody></table></div>" +
           '<div class="note">' + esc(freshnessNote()) + "</div></section>" +
       "</div></div></div>";
@@ -1269,7 +1371,7 @@ function screenCart() {
       "</div>";
 
       var mx = d.chain_totals.length ? d.chain_totals[d.chain_totals.length - 1].total : 1;
-      totals = '<div class="card"><h3 class="h3">כמה עולה אותו סל בכל רשת</h3>' +
+      totals = '<div class="card"><h2 class="h3">כמה עולה אותו סל בכל רשת</h2>' +
         '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' +
         d.chain_totals.map(function (c, i) {
           return '<div style="display:grid;grid-template-columns:120px 1fr 90px;gap:10px;align-items:center;font-size:13px">' +
@@ -1279,7 +1381,7 @@ function screenCart() {
         }).join("") + "</div>" +
         '<div class="note" style="margin-top:12px">מוצג רק סניף אחד לכל רשת - הזול ביותר שמוכר את כל ' + d.available + " המוצרים.</div></div>";
     } else {
-      right = '<div class="card"><h3 class="h3">אין סניף שמוכר את כל הסל</h3><p class="note" style="margin-top:8px">נסו להסיר מוצר או לבטל את סינון העיר.</p></div>';
+      right = '<div class="card"><h2 class="h3">אין סניף שמוכר את כל הסל</h2><p class="note" style="margin-top:8px">נסו להסיר מוצר או לבטל את סינון העיר.</p></div>';
     }
   }
 
@@ -1302,12 +1404,106 @@ function screenCart() {
     '<section style="flex:999 1 460px;min-width:0;display:flex;flex-direction:column;gap:16px">' +
       '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
         '<h1 style="font-size:32px;font-weight:900">🛒 הסל שלי</h1>' +
-        '<div style="display:flex;gap:10px;align-items:center"><select id="citysel" style="border:2px solid var(--ink);border-radius:12px;padding:8px 10px;font-weight:600">' + cityOpts + "</select>" +
+        '<div style="display:flex;gap:10px;align-items:center"><select id="citysel" aria-label="סינון הסל לפי עיר" style="border:2px solid var(--ink);border-radius:12px;padding:8px 10px;font-weight:600">' + cityOpts + "</select>" +
         '<span class="pill" style="background:var(--ink);color:#fff">' + cartCount() + " פריטים</span></div></div>" +
       '<div class="card" style="padding:0;overflow:hidden">' + items + "</div>" +
+      nearCard() +
       missing + meter + totals +
     "</section>" +
     '<aside style="flex:1 1 300px;min-width:0;position:sticky;top:12px">' + right + "</aside></div>";
+}
+
+
+/* "הזול בסביבה" - כרטיס בתוך מסך הסל */
+function nearCard() {
+  var n = S.near;
+  var cityOpts = ['<option value="">בחרו יישוב…</option>'].concat(S.cities.filter(function (c) {
+    return c.name !== UNKNOWN;
+  }).map(function (c) {
+    return '<option value="' + esc(c.name) + '"' + (n.mode === "city" && n.city === c.name ? " selected" : "") + ">" + esc(c.name) + "</option>";
+  })).join("");
+  var radii = [5, 10, 20, 40].map(function (r) {
+    return '<option value="' + r + '"' + (n.radius === r ? " selected" : "") + ">עד " + r + ' ק"מ</option>';
+  }).join("");
+  var controls = '<div class="near-controls">' +
+    '<button type="button" class="btn" data-near-gps>📍 המיקום שלי</button>' +
+    '<span class="small muted">או</span>' +
+    '<label class="sr-only" for="nearcity">יישוב</label>' +
+    '<select id="nearcity" class="near-select">' + cityOpts + "</select>" +
+    '<label class="sr-only" for="nearradius">רדיוס</label>' +
+    '<select id="nearradius" class="near-select">' + radii + "</select>" +
+    '<button type="button" class="btn btn-green" data-near-run' + (n.loading ? " disabled" : "") + ">" + (n.loading ? '<span class="spinner"></span> מחשבים…' : "חפשו") + "</button>" +
+    "</div>";
+  var where = n.mode === "gps" && n.coords ? n.label : (n.city || "");
+  var body = "";
+  if (n.error) body = '<div class="warn" style="margin-top:12px">' + esc(n.error) + "</div>";
+  else if (n.data) {
+    var d = n.data;
+    if (!d.list.length) {
+      body = '<div class="note" style="margin-top:12px">אין סניפים בטווח של ' + n.radius + ' ק"מ מ' + esc(where) + " שמוכרים מוצרים מהסל. נסו רדיוס גדול יותר.</div>";
+    } else {
+      body = '<div class="small muted" style="margin:12px 0 6px">' + (d.complete ? "חמשת הסניפים הזולים" : "אין סניף בטווח שמוכר את כל הסל. מוצגים סניפים חלקיים") +
+        ' עד ' + n.radius + ' ק"מ מ' + esc(where) + " · " + d.in_radius + " סניפים בטווח</div>" +
+        '<ol class="near-list">' + d.list.map(function (s, i) {
+          return '<li class="near-row">' +
+            '<span class="near-rank">' + (i + 1) + "</span>" +
+            '<span class="near-main"><span style="font-weight:900">' + esc(s.chain) + "</span> · " + esc(s.branch) + ", " + esc(s.city) +
+              (s.address && s.address !== UNKNOWN ? '<br><span class="small muted">' + esc(s.address) + "</span>" : "") +
+              '<br><span class="small muted">כ־' + s.km + ' ק"מ ממרכז היישוב · מחירים מ־' + s.dates.map(dateHe).join(", ") +
+              (s.complete ? "" : " · " + s.items + " מתוך " + d.available + " המוצרים") + "</span></span>" +
+            '<span class="near-total tnum">' + nis(s.total) + " ₪</span></li>";
+        }).join("") + "</ol>" +
+        '<div class="note" style="margin-top:10px">המרחק נמדד למרכז היישוב של הסניף ולא לכתובתו, כי הרשתות אינן מפרסמות קואורדינטות.' +
+        (d.unknown ? " " + d.unknown + " סניפים ללא יישוב ידוע לא נכללו." : "") +
+        (d.missing.length ? " " + d.missing.length + " מוצרים מהסל לא נמצאו באף סניף." : "") + "</div>";
+    }
+  }
+  return '<div class="card near-card"><h2 class="h3">📍 הזול בסביבה</h2>' +
+    '<p class="small muted" style="margin:4px 0 10px">איפה הסל הזה הכי זול קרוב אליכם. המיקום נשאר בדפדפן ואינו נשלח לשום מקום.</p>' +
+    controls + body + "</div>";
+}
+
+// ------------------------------------------------------------------ alerts
+function screenAlerts() {
+  var head = '<div class="wrap" id="main">' +
+    '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);width:fit-content;transform:rotate(-2deg);font-weight:900">🔔 המעקב שלי</div>' +
+    '<h1 style="font-size:34px;font-weight:900;line-height:1.1;margin-top:10px">מה השתנה במחירים שלי?</h1>';
+  if (!S.watch.length) {
+    return head + '<div class="card" style="margin-top:16px">עדיין אין מוצרים במעקב. פתחו עמוד מוצר ולחצו "עקבו אחרי המחיר", ' +
+      'ובכל ביקור תראו כאן מה השתנה מאז העדכון היומי האחרון. <a data-go="home">לחיפוש מוצרים</a></div></div>';
+  }
+  if (!S.alerts) return head + '<div class="loading"><span class="spinner"></span> משווים לעדכון האחרון…</div></div>';
+  if (S.alerts.error) return head + '<div class="warn" style="margin-top:16px">' + esc(S.alerts.error) + "</div></div>";
+  var a = S.alerts;
+  var latest = a.latest ? dateHe(a.latest) : "לא ידוע";
+  function rowBtns(x) {
+    return '<span class="alert-btns"><button type="button" class="btn" style="padding:6px 10px;font-size:13px" data-open="' + esc(x.barcode) + '">לעמוד המוצר</button>' +
+      '<button type="button" class="btn" style="padding:6px 10px;font-size:13px" data-unwatch="' + esc(x.barcode) + '">הסירו</button></span>';
+  }
+  var changed = a.changed.length ?
+    '<div class="card" style="margin-top:16px"><h2 class="h3">השתנו בעדכון של ' + latest + " (" + a.changed.length + ")</h2>" +
+    '<div style="overflow-x:auto"><table style="margin-top:10px"><thead><tr><th scope="col">מוצר</th><th scope="col">מחיר קודם</th><th scope="col">מחיר חדש</th><th scope="col">שינוי</th><th scope="col"></th></tr></thead><tbody>' +
+    a.changed.map(function (c) {
+      var col = c.pct < 0 ? "var(--green-text)" : "var(--red)";
+      return "<tr><td>" + esc(prettyName(c.name)) + '<br><span class="small muted">חציון ארצי מ־' + num(c.stores) + " סניפים</span></td>" +
+        '<td class="tnum">' + nis(c.old) + ' ₪<br><span class="small muted">' + dateHe(c.prev_date) + "</span></td>" +
+        '<td class="tnum" style="font-weight:900">' + nis(c.now) + ' ₪<br><span class="small muted">' + dateHe(c.date) + "</span></td>" +
+        '<td class="tnum" style="font-weight:900;color:' + col + '">' + (c.pct > 0 ? "▲ +" : "▼ ") + c.pct + "%</td>" +
+        "<td>" + rowBtns(c) + "</td></tr>";
+    }).join("") + "</tbody></table></div></div>" :
+    '<div class="card" style="margin-top:16px"><h2 class="h3">אין שינוי בעדכון של ' + latest + "</h2><p class=\"small muted\" style=\"margin-top:6px\">אף מוצר במעקב לא שינה את החציון הארצי שלו בעדכון האחרון.</p></div>";
+  var unchanged = a.unchanged.length ?
+    '<div class="card" style="margin-top:16px"><h2 class="h3">ללא שינוי (' + a.unchanged.length + ")</h2>" +
+    '<div style="overflow-x:auto"><table style="margin-top:10px"><thead><tr><th scope="col">מוצר</th><th scope="col">חציון ארצי</th><th scope="col">ללא שינוי מאז</th><th scope="col"></th></tr></thead><tbody>' +
+    a.unchanged.map(function (u) {
+      return "<tr><td>" + esc(prettyName(u.name)) + "</td><td class=\"tnum\">" + nis(u.price) + " ₪</td><td>" +
+        (u.first ? "נתון ראשון ב־" + dateHe(u.since) : dateHe(u.since)) + "</td><td>" + rowBtns(u) + "</td></tr>";
+    }).join("") + "</tbody></table></div></div>" : "";
+  var missing = a.missing.length ?
+    '<div class="warn" style="margin-top:16px">' + a.missing.map(function (m) { return esc(prettyName(m.name)) + ": " + esc(m.reason); }).join("<br>") + "</div>" : "";
+  return head +
+    '<p class="small muted" style="margin:6px 0 0">ההשוואה היא של החציון הארצי מול הנקודה הקודמת שלו. הרשימה נשמרת בדפדפן הזה בלבד.</p>' +
+    changed + unchanged + missing + "</div>";
 }
 
 function receiptCard(b, d) {
@@ -1365,8 +1561,15 @@ function upgradeClickables(root) {
   for (var i = 0; i < nodes.length; i++) {
     var el = nodes[i];
     if (el.tagName === "A" || el.tagName === "BUTTON") continue;
+    // tabindex="-1" מפורש: הרכיב לחיץ בעכבר בלבד, ויש בתוכו כפתור אמיתי
+    if (el.getAttribute("tabindex") === "-1") continue;
     if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "0");
-    if (!el.hasAttribute("role")) el.setAttribute("role", "button");
+    var nested = el.querySelector("a[href],button,input,select,textarea");
+    if (!el.hasAttribute("role") && !nested) el.setAttribute("role", "button");
+    if (nested && !el.hasAttribute("aria-label")) {
+      var h = el.querySelector("h1,h2,h3,.h3");
+      if (h) el.setAttribute("aria-label", "פתיחת " + h.textContent.trim());
+    }
     if (!el.getAttribute("aria-label") && !el.textContent.trim()) {
       el.setAttribute("aria-label", "פתיחת פריט");
     }
@@ -1380,6 +1583,7 @@ function render() {
   else if (S.screen === "market") body = screenMarket();
   else if (S.screen === "scan") body = screenScan();
   else if (S.screen === "quiz") body = screenQuiz();
+  else if (S.screen === "alerts") body = screenAlerts();
   else body = screenCart();
 
   var toastHtml = S.toast ? '<div role="status" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
@@ -1388,7 +1592,12 @@ function render() {
   var skip = '<a class="skip" href="#main">דילוג לתוכן</a>';
   ensureLiveRegion();
   var app = document.getElementById("app");
-  app.innerHTML = skip + header() + tape() + body + mobileNav() + toastHtml;
+  // אזור התוכן הראשי שייך ל-render ולא לכל מסך בנפרד: כך אין מסך בלי
+  // main (Lighthouse מצא כזה בעמוד המוצר, וקישור הדילוג הוביל לשום מקום)
+  // ואין שני אלמנטים עם אותו id. tabindex מאפשר לדילוג להעביר את המיקוד.
+  body = body.replace(/ id="main"/g, "");
+  app.innerHTML = skip + header() + tape() + '<main id="main" tabindex="-1">' + body + "</main>" +
+    mobileNav() + toastHtml;
   upgradeClickables(app);
   announceScreen();
   runCountUps();
@@ -1408,6 +1617,7 @@ function go(screen, opts) {
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
   if (screen === "quiz" && !S.quiz) loadQuiz();
+  if (screen === "alerts" && !S.alerts) loadAlerts();
   setHash(hashFor(screen), opts.replace);
   render();
 }
@@ -1432,7 +1642,7 @@ function applyHash(initial) {
     render(); loadProduct();
     return;
   }
-  var screen = ["home", "market", "scan", "cart", "quiz"].indexOf(h) >= 0 ? h : "home";
+  var screen = ["home", "market", "scan", "cart", "quiz", "alerts"].indexOf(h) >= 0 ? h : "home";
   if (screen === "scan" && !SCAN_ENABLED) screen = "home";
   if (!initial && screen === S.screen) { render(); return; }
   S.screen = screen;
@@ -1440,6 +1650,7 @@ function applyHash(initial) {
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
   if (screen === "quiz" && !S.quiz) loadQuiz();
+  if (screen === "alerts" && !S.alerts) loadAlerts();
   render();
 }
 
@@ -1592,18 +1803,42 @@ document.addEventListener("keydown", function (ev) {
   var t = ev.target;
   if (!t || t.tagName === "A" || t.tagName === "BUTTON" ||
       t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT") return;
-  if (t.getAttribute("role") !== "button") return;
+  if (t.getAttribute("role") !== "button" && !(t.hasAttribute("data-open") && t.getAttribute("tabindex") === "0")) return;
   ev.preventDefault();
   t.click();
 });
 
 document.addEventListener("click", function (ev) {
-  var t = ev.target.closest("[data-quiz-answer],[data-quiz-submit],[data-quiz-next],[data-quiz-share],[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
+  // קישור הדילוג מצביע על #main, אבל הכתובת משמשת כאן לניווט בין מסכים:
+  // בלי זה הלחיצה הייתה מחליפה מסך (ובעמוד מוצר, חוזרת לעמוד הבית)
+  // ומאבדת את המיקוד. מעבירים מיקוד ישירות, בלי לגעת בכתובת.
+  var sk = ev.target.closest(".skip");
+  if (sk) {
+    ev.preventDefault();
+    var mainEl = document.getElementById("main");
+    if (mainEl) { mainEl.focus(); mainEl.scrollIntoView(); }
+    return;
+  }
+  var t = ev.target.closest("[data-watch],[data-unwatch],[data-near-gps],[data-near-run],[data-quiz-answer],[data-quiz-submit],[data-quiz-next],[data-quiz-share],[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
   if (!t) {
     if (S.focused && !ev.target.closest(".searchbox") && !ev.target.closest(".suggest")) { S.focused = false; paintSuggest(); }
     return;
   }
   if (t.hasAttribute("data-tape-toggle")) { S.tapePaused = !S.tapePaused; render(); return; }
+  if (t.hasAttribute("data-watch")) {
+    var pw = S.product && S.product.product;
+    if (pw) { toggleWatch({ barcode: pw.barcode, name: pw.name, tint: pw.tint }); render(); }
+    return;
+  }
+  if (t.hasAttribute("data-unwatch")) {
+    S.watch = S.watch.filter(function (w) { return w.barcode !== t.getAttribute("data-unwatch"); });
+    saveWatch(); S.alerts = null; render(); loadAlerts(); return;
+  }
+  if (t.hasAttribute("data-near-gps")) { useMyLocation(); return; }
+  if (t.hasAttribute("data-near-run")) {
+    if (S.near.mode === "city" && !S.near.city) { toast("בחרו יישוב או לחצו על \"המיקום שלי\""); return; }
+    loadNear(); return;
+  }
   if (t.hasAttribute("data-quiz-answer")) {
     var g = t.getAttribute("data-quiz-answer");
     answerQuiz(g === "up" || g === "down" ? g : parseFloat(g));
@@ -1692,6 +1927,14 @@ document.addEventListener("change", function (ev) {
     if (S.screen === "product") { S.product = null; render(); loadProduct(); }
     else { render(); loadCart2(); }
   }
+  if (ev.target.id === "nearcity") {
+    S.near.city = ev.target.value; S.near.mode = "city"; S.near.coords = null; S.near.data = null; S.near.error = null;
+    if (S.near.city) loadNear(); else render();
+  }
+  if (ev.target.id === "nearradius") {
+    S.near.radius = parseInt(ev.target.value, 10) || 10;
+    if (nearOrigin() || (S.near.mode === "gps" && S.near.coords)) loadNear(); else render();
+  }
   if (ev.target.id === "scancity") {
     S.city = ev.target.value;
     try { localStorage.setItem(LS_CITY, S.city); } catch (e) {}
@@ -1745,6 +1988,7 @@ function boot(msg) {
 
 loadCart();
 loadQuizState();
+loadWatch();
 API = window.MehironData();
 boot("מתחיל…");
 API.init(boot)

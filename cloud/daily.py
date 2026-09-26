@@ -30,6 +30,10 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 LOCK_PATH = os.path.join(BASE_DIR, ".daily.lock")
 STATE_PATH = os.path.join(BASE_DIR, "last_run.json")
 CONFIG_JS = os.path.join(REPO_DIR, "site", "config.js")
+PAGES_STAMP = os.path.join(BASE_DIR, "pages_built.json")
+PAGES_EVERY_DAYS = 7       # עמודי המוצרים לגוגל נבנים פעם בשבוע ולא כל יום
+# מה שהריצה מורשית לדחוף. רשימה סגורה, בכוונה: לעולם לא git add -A.
+PUBLISH_PATHS = ["site/config.js", "site/p", "site/sitemap.xml"]
 
 MIN_FREE_GB = 15          # build_cloud_db כותב כ-2 ג'יגה ואז VACUUM שדורש עותק נוסף
 LOG_KEEP_DAYS = 30
@@ -183,6 +187,8 @@ def main():
                     help="לא לדחוף לגיט. האתר החי לא יתעדכן")
     ap.add_argument("--max-gb", type=float, default=9.0,
                     help="גבול תפוסה בדלי בג'יגה")
+    ap.add_argument("--pages", action="store_true",
+                    help="לבנות את עמודי המוצרים עכשיו, גם אם לא עבר שבוע")
     args = ap.parse_args()
 
     lock = acquire_lock()
@@ -234,6 +240,13 @@ def main():
         write_state(False, "index", msg, started=started)
         return 1
 
+    # ---------- עמודי מוצרים לגוגל, פעם בשבוע. כישלון כאן לא עוצר את
+    # עדכון הנתונים: האתר עצמו חשוב יותר מהעמודים הסטטיים.
+    if args.pages or pages_due():
+        if run_step("2ב/5 בונה עמודי מוצרים (שבועי)",
+                    [py, os.path.join("cloud", "build_pages.py")]):
+            log("בניית עמודי המוצרים נכשלה. ממשיכים בלעדיהם; ננסה שוב מחר.")
+
     # ---------- מסד הענן
     if run_step("3/5 בונה את מסד הענן",
                 [py, os.path.join("cloud", "build_cloud_db.py")]):
@@ -283,6 +296,17 @@ def main():
     return 0
 
 
+def pages_due():
+    """האם עבר שבוע מאז הבנייה האחרונה של עמודי המוצרים."""
+    try:
+        with open(PAGES_STAMP, encoding="utf-8") as fh:
+            built = json.load(fh).get("built")
+        age = (time.time() - time.mktime(time.strptime(built, "%Y-%m-%d"))) / 86400
+        return age >= PAGES_EVERY_DAYS - 0.5
+    except (OSError, ValueError, TypeError, AttributeError):
+        return True
+
+
 def sync_with_remote():
     """
     מביא את מה שמוזג בגיטהאב לפני הדחיפה.
@@ -308,7 +332,7 @@ def sync_with_remote():
 
 
 def publish(new_key):
-    """דוחף רק את site/config.js. לעולם לא -A: קובץ אחד, בכוונה."""
+    """דוחף רק את הנתיבים ב-PUBLISH_PATHS. לעולם לא -A, בכוונה."""
     log("")
     log("=" * 60)
     log("5/5 מפרסם לאתר")
@@ -323,11 +347,12 @@ def publish(new_key):
                        "אחרי חזרה ל-main אפשר להריץ שוב.")
 
     sync_with_remote()
-    r = git(["add", "site/config.js"])
+    paths = [p for p in PUBLISH_PATHS if os.path.exists(os.path.join(REPO_DIR, p))]
+    r = git(["add", "--"] + paths)
     if r.returncode:
         return False, "git add נכשל: " + (r.stderr or "").strip()[:200]
-    if git(["diff", "--cached", "--quiet", "site/config.js"]).returncode == 0:
-        log("אין שינוי ב-config.js. אין מה לפרסם.")
+    if git(["diff", "--cached", "--quiet", "--"] + paths).returncode == 0:
+        log("אין שינוי בקבצים לפרסום. אין מה לפרסם.")
         return True, "אין שינוי לפרסום."
     r = git(["commit", "-m", "Publish the " + time.strftime("%d.%m") + " data"])
     if r.returncode:

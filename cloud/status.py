@@ -173,6 +173,17 @@ def local_section():
     if stuck:
         row("", "אלה קבצים שלא ניתן לפרסר, והם נשמרים וננסים שוב בכל ריצה")
 
+    # קבצים פגומים (קטועים, או שנכשלו יותר משלושה ימים) עוברים להסגר.
+    # הם לא נמחקים, כדי שאפשר יהיה לבדוק אם הרשת מפרסמת קבצים שבורים.
+    quar = os.path.join(REPO_DIR, "quarantine")
+    qn, qchains = 0, set()
+    if os.path.isdir(quar):
+        for r, _d, files in os.walk(quar):
+            for f in files:
+                qn += 1
+                qchains.add(os.path.relpath(r, quar))
+    row("קבצים פגומים בהסגר", f"{qn} ({', '.join(sorted(qchains))})" if qn else "אין")
+
 
 # ------------------------------------------------------------------ ריצה אחרונה
 def last_run_section():

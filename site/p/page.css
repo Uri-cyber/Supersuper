@@ -1,0 +1,48 @@
+/* עמודי המוצרים הסטטיים (site/p). גופנים מקומיים בלבד. */
+@font-face{font-family:'Heebo';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:400;font-display:swap;src:url('/fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:700;font-display:swap;src:url('/fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:900;font-display:swap;src:url('/fonts/heebo-400-hebrew.woff2') format('woff2');unicode-range:U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;}
+@font-face{font-family:'Heebo';font-style:normal;font-weight:900;font-display:swap;src:url('/fonts/heebo-400-latin.woff2') format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;}
+
+:root{--bg:#f6f4ec;--ink:#14151a;--green:#1fb85a;--green-dark:#0c3f22;--green-link:#0b7a39;
+  --red:#b3261e;--muted:#5c5f68;--line:#d9d5c7;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:'Heebo',system-ui,-apple-system,'Segoe UI',Arial,sans-serif;font-size:16px;line-height:1.7}
+.wrap{max-width:900px;margin:0 auto;padding:0 18px}
+.skip{position:absolute;right:-9999px;top:0;z-index:100;background:var(--green-dark);color:#fff;
+  padding:12px 20px;font-weight:700;text-decoration:none}
+.skip:focus{right:0}
+a{color:var(--green-link)}
+a:focus-visible{outline:3px solid var(--green-dark);outline-offset:2px;border-radius:3px}
+header{border-bottom:3px solid var(--ink);background:var(--card)}
+header .wrap{padding-top:14px;padding-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.brand{font-weight:900;font-size:20px;color:var(--ink);text-decoration:none}
+.back{font-weight:700}
+main{padding-top:22px;padding-bottom:40px}
+.kicker{margin:0;font-size:14px;font-weight:700;color:var(--muted)}
+h1{font-size:30px;line-height:1.2;margin:6px 0 18px}
+h2{font-size:21px;margin:30px 0 8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{background:var(--card);border:3px solid var(--ink);border-radius:18px;padding:14px 16px;box-shadow:5px 5px 0 var(--ink)}
+.card.lo{box-shadow:5px 5px 0 var(--green)}
+.card.hi{box-shadow:5px 5px 0 var(--red)}
+.lbl{font-size:13px;font-weight:700;color:var(--muted)}
+.val{font-size:32px;font-weight:900;line-height:1.2;font-variant-numeric:tabular-nums}
+.sub{font-size:14px;color:var(--muted)}
+.cta{display:inline-block;margin-top:18px;background:var(--ink);color:#fff;font-weight:800;
+  padding:12px 18px;border-radius:14px;text-decoration:none}
+.cta:focus-visible{outline:3px solid var(--green);outline-offset:3px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);border:2px solid var(--line);font-size:15px}
+caption{text-align:right;font-weight:700;padding:8px 0;color:var(--muted);font-size:14px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:right;vertical-align:top}
+thead th{background:#efece0;font-weight:800}
+td.num{font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}
+.note{font-size:14px;color:var(--muted)}
+.muted{color:var(--muted);font-size:14px}
+.plist{padding-inline-start:20px}
+.plist li{margin:4px 0}
+.foot{border-top:2px solid var(--line);padding-top:14px;padding-bottom:40px;font-size:14px;color:var(--muted)}

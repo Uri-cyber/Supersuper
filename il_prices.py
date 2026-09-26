@@ -27,6 +27,21 @@ from concurrent.futures import ProcessPoolExecutor
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "prices.db")
 DUMPS_DIR = os.path.join(BASE_DIR, "dumps")
+# קבצים שלא ניתן לקלוט עוברים לכאן במקום להיקלט מחדש בכל ריצה לנצח
+QUARANTINE_DIR = os.path.join(BASE_DIR, "quarantine")
+QUARANTINE_AFTER_DAYS = 3
+
+
+def quarantine(path):
+    """מעביר קובץ מ-dumps להסגר, תוך שמירת תת-התיקייה של הרשת."""
+    rel = os.path.relpath(path, DUMPS_DIR)
+    dest = os.path.join(QUARANTINE_DIR, rel)
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    try:
+        os.replace(path, dest)
+    except OSError:
+        return path
+    return dest
 STATUS_DIR = os.path.join(DUMPS_DIR, "status")
 CITIES_PATH = os.path.join(BASE_DIR, "cities.json")
 
@@ -492,7 +507,20 @@ def import_dumps(conn, delete_after=True, workers=4):
             if delete_after:
                 os.remove(path)
         except Exception as exc:  # noqa: BLE001
-            print(f"  שגיאה בקובץ {path}: {exc} (הקובץ נשמר וייקלט בניסיון הבא)")
+            # קובץ gzip קטוע לא יתוקן בניסיון חוזר: הבייטים החסרים לא יגיעו.
+            # קובץ שנכשל שוב ושוב יותר משלושה ימים כנראה פגום במקור. שניהם
+            # עוברים להסגר ולא נמחקים, כדי שאפשר יהיה לבדוק אותם ביד.
+            truncated = isinstance(exc, EOFError) or "end-of-stream" in str(exc)
+            try:
+                age_days = (time.time() - os.path.getmtime(path)) / 86400
+            except OSError:
+                age_days = 0
+            if truncated or age_days > QUARANTINE_AFTER_DAYS:
+                dest = quarantine(path)
+                why = "הקובץ קטוע" if truncated else f"נכשל במשך {age_days:.0f} ימים"
+                print(f"  שגיאה בקובץ {path}: {exc} ({why}, הועבר להסגר: {dest})")
+            else:
+                print(f"  שגיאה בקובץ {path}: {exc} (הקובץ נשמר וייקלט בניסיון הבא)")
 
     if delete_after:
         for p in other:
