@@ -44,25 +44,43 @@ class StoreFileTest(unittest.TestCase):
         rows = {r[0]: r for r in parse(CITY_MARKET_XML)}
         self.assertEqual(sorted(rows), [1, 12, 40], "כל סניף ברשומה פנימית נקרא, לא הקובץ כולו כרשומה אחת")
 
-    def test_city_from_name(self):
+    def test_parse_leaves_city_unknown(self):
         rows = {r[0]: r for r in parse(CITY_MARKET_XML)}
-        self.assertEqual(rows[40][2], "תל אביב - יפו")
-        self.assertEqual(rows[40][3], "קלישר 3", "הכתובת: הקטע שאחרי הפסיק, בלי העיר")
-        self.assertIn("משם הסניף", rows[40][4], "מקור העיר מתועד בהערה")
-        self.assertEqual(rows[12][2], "כפר סבא", "קיצור מקובל בסוף השם")
-
-    def test_no_city_stays_unknown(self):
-        rows = {r[0]: r for r in parse(CITY_MARKET_XML)}
-        self.assertEqual(rows[1][2], ip.UNKNOWN, "שם בלי עיר בסופו: לא מנחשים")
-        self.assertEqual(rows[1][3], ip.UNKNOWN)
+        self.assertEqual(rows[40][2], ip.UNKNOWN, "הקורא עצמו לא מנחש; המילוי משם הסניף הוא מעבר נפרד")
 
     def test_regular_file_unchanged(self):
         rows = parse(REGULAR_XML)
         self.assertEqual(rows, [(7, "רמת אביב", "תל אביב - יפו", "איינשטיין 40", "")])
 
-    def test_city_only_at_end(self):
-        city, _rest = ip.city_from_store_name("סיטי מרקט וייצמן כפר סבא, וייצמן 55")
-        self.assertIsNone(city, "עיר באמצע השם אינה נלקחת")
+
+ALLOWED = {"תל אביב - יפו", "כפר סבא", "נהריה", "מודיעין-מכבים-רעות", "אשקלון", "חצור-אשדוד", "חצור הגלילית"}
+TOKENS = ip.city_tokens(ALLOWED)
+
+
+class CityFromNameTest(unittest.TestCase):
+    def test_end_with_address(self):
+        city, rest = ip.city_from_store_name('מתוק בשוק הכרמל בע"מ, קלישר 3 תל אביב', TOKENS)
+        self.assertEqual(city, "תל אביב - יפו")
+        self.assertEqual(ip.address_from_rest(rest), "קלישר 3")
+
+    def test_abbreviation_at_start_beats_word_at_end(self):
+        self.assertEqual(ip.city_from_store_name('ת"א סלמה', TOKENS)[0], "תל אביב - יפו")
+        self.assertEqual(ip.city_from_store_name('ת"א - כיכר רבין', TOKENS)[0], "תל אביב - יפו")
+
+    def test_exact_and_hyphen_part(self):
+        self.assertEqual(ip.city_from_store_name("נהריה", TOKENS)[0], "נהריה")
+        self.assertEqual(ip.city_from_store_name("מודיעין ישפרו", TOKENS)[0], "מודיעין-מכבים-רעות")
+        self.assertEqual(ip.city_from_store_name("קולינריק מודיעין", TOKENS)[0], "מודיעין-מכבים-רעות")
+
+    def test_ambiguous_token_dropped(self):
+        self.assertNotIn("חצור", TOKENS, "חצור יכול להיות שני יישובים ולכן אינו מזהה")
+        self.assertIsNone(ip.city_from_store_name("חצור ת.", TOKENS)[0])
+
+    def test_city_in_the_middle_or_not_allowed(self):
+        self.assertIsNone(ip.city_from_store_name("סיטי מרקט וייצמן כפר סבא, וייצמן 55", TOKENS)[0])
+        self.assertIsNone(ip.city_from_store_name("אונליין - רמות", TOKENS)[0], "יישוב שאינו ברשימה המותרת")
+        self.assertIsNone(ip.city_from_store_name("סיטי מרקט - חנויות כללי", TOKENS)[0])
+        self.assertEqual(ip.city_from_store_name("מבקיעים אשקלון", TOKENS)[0], "אשקלון")
 
 
 if __name__ == "__main__":

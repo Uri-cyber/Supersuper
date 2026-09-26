@@ -327,25 +327,106 @@ def pick(rec, *keys):
     return ""
 
 
-def city_from_store_name(name):
+# מינימום סניפים (של כל הרשתות) שכבר ממוקמים ביישוב, כדי ששמו ישמש לזיהוי
+# מתוך שם סניף. יישוב קטן ששמו גם שם רחוב או שכונה (סלמה, חשמונאים, רמות,
+# גילת) לא עובר את הסף, וכך "ת"א סלמה" לא הופך ליישוב סלמה.
+CITY_FROM_NAME_MIN_STORES = 2
+_CITY_SEP = r"(?:\s*[-,:/|]\s*|\s+)"
+
+
+def city_tokens(allowed):
     """
-    עיר ששם הסניף מסתיים בה, כשהרשת כתבה unknown בשדה העיר. רק שם יישוב
-    רשמי מלא או קיצור מקובל שמופיע בסוף השם, אחרי רווח או פסיק. זה לא
-    ניחוש: הרשת עצמה כתבה את העיר, רק בשדה הלא נכון. מחזיר (עיר, שארית).
+    מילון {מחרוזת בשם הסניף: שם יישוב רשמי}. מחרוזת שמובילה ליותר מיישוב
+    אחד ("חצור" יכול להיות חצור-אשדוד או חצור הגלילית) מושמטת.
     """
-    t = re.sub(r"\s+", " ", name or "").strip().rstrip(".").strip()
-    candidates = {}
-    for full in set(CITIES.values()):
-        candidates[full] = full
-        short = full.split(" - ")[0].strip()
-        if short != full:
-            candidates.setdefault(short, full)
-    candidates.update(CITY_ABBREVIATIONS)
-    for token in sorted(candidates, key=len, reverse=True):
-        for sep in (" ", ","):
-            if t.endswith(sep + token):
-                return candidates[token], t[: -len(token)].rstrip(" ,")
+    tokens = {}
+    for full in allowed:
+        parts = {full, full.split(" - ")[0].strip()}
+        # החלק שלפני מקף בלי רווחים: "מודיעין" מ"מודיעין-מכבים-רעות", "יהוד" מ"יהוד-מונוסון"
+        parts.add(re.split(r"\s*-\s*", full)[0].strip())
+        for p in parts:
+            if len(p) >= 3:
+                tokens.setdefault(p, set()).add(full)
+    out = {p: next(iter(v)) for p, v in tokens.items() if len(v) == 1}
+    # חלק של שם שהוא גם תחילתו של יישוב אחר ("חצור" מול "חצור הגלילית") אינו מזהה
+    for p in list(out):
+        if any(full != out[p] and full.startswith(p + " ") for full in allowed):
+            del out[p]
+    out.update(CITY_ABBREVIATIONS)
+    return out
+
+
+def city_from_store_name(name, tokens):
+    """
+    עיר שכתובה בתוך שם הסניף, כשבשדה העיר הרשת כתבה unknown או כלום.
+    רק שם יישוב רשמי או קיצור מקובל, כמילה שלמה: השם כולו ("נהריה"),
+    תחילתו ("ת"א - כיכר רבין") או סופו ("מתוק בשוק, קלישר 3 תל אביב").
+    זה לא ניחוש: הרשת עצמה כתבה את העיר, רק בשדה הלא נכון.
+    מחזיר (עיר, שארית השם בלי העיר).
+    """
+    t = re.sub(r"\s+", " ", name or "").strip().strip("*").rstrip(".").strip()
+    if not t:
+        return None, t
+    ordered = sorted(tokens, key=len, reverse=True)
+    for tok in ordered:
+        if t == tok:
+            return tokens[tok], ""
+    for tok in ordered:
+        m = re.match(re.escape(tok) + _CITY_SEP, t)
+        if m:
+            return tokens[tok], t[m.end():].strip()
+    for tok in ordered:
+        m = re.search(_CITY_SEP + re.escape(tok) + r"$", t)
+        if m:
+            return tokens[tok], t[: m.start()].strip()
     return None, t
+
+
+def address_from_rest(rest):
+    """הכתובת מתוך שארית שם הסניף: הקטע שאחרי הפסיק האחרון, אם יש בו מספר ואינו שם חברה."""
+    if "," not in rest:
+        return None
+    tail = rest.rsplit(",", 1)[1].strip()
+    if re.search(r"\d", tail) and 'בע"מ' not in tail and "בע״מ" not in tail:
+        return tail
+    return None
+
+
+def fill_city_from_names(conn):
+    """
+    מעבר על סניפים בלי עיר, אחרי קליטת קובצי הסניפים. הרשימה המותרת נגזרת
+    מהמסד עצמו: יישובים שכבר יש בהם סניפים ממוקמים של רשתות אחרות.
+    """
+    counts = {}
+    for city, n in conn.execute(
+        "SELECT city, COUNT(*) FROM stores WHERE city IS NOT NULL AND city <> '' AND city <> ? "
+        "AND notes NOT LIKE '%נלקחה משם הסניף%' GROUP BY city", (UNKNOWN,)
+    ):
+        counts[normalize_city(city)] = counts.get(normalize_city(city), 0) + n
+    allowed = {c for c, n in counts.items() if n >= CITY_FROM_NAME_MIN_STORES and c in set(CITIES.values())}
+    tokens = city_tokens(allowed)
+    updates = []
+    for chain, sid, name, address, notes in conn.execute(
+        "SELECT chain, store_id, store_name, address, notes FROM stores "
+        "WHERE city IS NULL OR city = '' OR city = ?", (UNKNOWN,)
+    ):
+        city, rest = city_from_store_name(name, tokens)
+        if not city:
+            continue
+        new_notes = [n for n in (notes or "").split("; ") if n and n != "העיר חסרה בקובץ הרשת"]
+        new_notes.append("העיר נלקחה משם הסניף, כי בשדה העיר הרשת לא כתבה אותה")
+        new_addr = address
+        if (not address or address == UNKNOWN) and address_from_rest(rest):
+            new_addr = address_from_rest(rest)
+            new_notes = [n for n in new_notes if n != "הכתובת חסרה בקובץ הרשת"]
+            new_notes.append("הכתובת נלקחה משם הסניף")
+        updates.append((city, new_addr, "; ".join(dict.fromkeys(new_notes)), chain, sid))
+    if updates:
+        conn.executemany(
+            "UPDATE stores SET city = ?, address = ?, notes = ? WHERE chain = ? AND store_id = ?",
+            updates)
+        conn.commit()
+    return len(updates)
 
 
 def parse_store_file(path):
@@ -365,17 +446,6 @@ def parse_store_file(path):
             notes.append("שם הסניף חסר בקובץ הרשת")
         city = normalize_city(clean_text(pick(rec, "city", "cityname", "town")))
         address = clean_text(pick(rec, "address", "street", "storeaddress"))
-        if not city:
-            found, rest = city_from_store_name(name)
-            if found:
-                city = found
-                notes.append("העיר נלקחה משם הסניף, כי בשדה העיר הרשת כתבה unknown")
-                # הכתובת: הקטע שאחרי הפסיק האחרון, אם יש בו מספר ואינו שם חברה
-                if not address and "," in rest:
-                    tail = rest.rsplit(",", 1)[1].strip()
-                    if re.search(r"\d", tail) and 'בע"מ' not in tail and "בע״מ" not in tail:
-                        address = tail
-                        notes.append("הכתובת נלקחה משם הסניף")
         if not city:
             city = UNKNOWN
             notes.append("העיר חסרה בקובץ הרשת")
@@ -494,6 +564,9 @@ def import_dumps(conn, delete_after=True, workers=4):
             )
             conn.commit()
             stores_total += len(rows)
+            filled = fill_city_from_names(conn)
+            if filled:
+                print(f"           {filled} סניפים בלי עיר קיבלו עיר משם הסניף")
             print(f"  סניפים  {chain:<22} {len(rows):>5}  ({os.path.basename(path)})")
             if delete_after:
                 os.remove(path)
