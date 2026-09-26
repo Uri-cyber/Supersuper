@@ -2,6 +2,7 @@
 prices.db
 prices.db-*
 dumps/
+quarantine/
 *.sqlite
 *.sqlite-*
 
@@ -32,6 +33,7 @@ cloud/vendor/
 # פלט של הריצה היומית. מקומי למחשב הזה.
 cloud/logs/
 cloud/last_run.json
+cloud/pages_built.json
 cloud/size_history.json
 cloud/.daily.lock
 cloud/mehiron-*.xml
