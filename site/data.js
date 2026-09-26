@@ -70,7 +70,8 @@ function ServerApi() {
       return post("/api/basket", { items: items, city: city, include_old: includeOld });
     },
     receipt: function (text, city) { return post("/api/receipt", { text: text, city: city }); },
-    quiz: function () { return get("/api/quiz"); }
+    quiz: function () { return get("/api/quiz"); },
+    watch: function (codes) { return get("/api/watch?barcodes=" + encodeURIComponent((codes || []).join("|"))); }
   };
 }
 
@@ -598,6 +599,17 @@ function SqliteApi(cfg) {
         return total(a, ca) - total(b, cb);
       });
     }
+    // כל הסניפים, ל"הזול בסביבה": הסינון לפי מרחק נעשה בדפדפן, כי המיקום
+    // של המשתמש לא עוזב אותו
+    var allStores = keys.map(function (k) {
+      var have = available.filter(function (b) { return stores[k][b] !== undefined; });
+      if (!have.length) return null;
+      var ds = {};
+      have.forEach(function (b) { ds[stores[k][b][1]] = 1; });
+      return Object.assign({}, info[k], { total: money(total(k, have)), items: have.length,
+                                          complete: have.length === available.length,
+                                          dates: Object.keys(ds).sort() });
+    }).filter(Boolean);
     var bestList = ranked.slice(0, 12).map(function (k) {
       var have = available.filter(function (b) { return stores[k][b] !== undefined; });
       var ds = {};
@@ -671,7 +683,27 @@ function SqliteApi(cfg) {
              best_items: bestItems, best_list: bestList, split: split, split_total: splitTotal,
              split_saving: best ? money(best.total - splitTotal) : 0,
              chain_totals: chainList, city: city || "", store_count: keys.length,
+             all_stores: allStores,
              meta: await dataMeta() };
+  }
+
+  /* הסדרה הארצית (שתי הנקודות האחרונות) לכל מוצר במעקב */
+  async function watchInfo(codes) {
+    codes = (codes || []).slice(0, 200);
+    var series = {}, names = {};
+    if (codes.length) {
+      (await q("SELECT barcode, date, median, n_stores FROM market_daily WHERE barcode IN (" +
+               placeholders(codes.length) + ") ORDER BY barcode, date", codes)).forEach(function (r) {
+        var lst = series[r.barcode] = series[r.barcode] || [];
+        lst.push({ date: r.date, median: money(r.median), n_stores: r.n_stores });
+        if (lst.length > 2) lst.shift();
+      });
+      (await q("SELECT barcode, name, n_stores FROM product_stats WHERE barcode IN (" +
+               placeholders(codes.length) + ")", codes)).forEach(function (r) {
+        names[r.barcode] = { name: r.name || UNKNOWN, stores: r.n_stores };
+      });
+    }
+    return { series: series, names: names, meta: await dataMeta() };
   }
 
   var RECEIPT_LINE = /^\s*(?:(\d+(?:[.,]\d+)?)\s*[xX*×]\s*)?(.+?)(?:\s+(\d+(?:[.,]\d{1,2})?))?\s*(?:₪|ש"ח|שח)?\s*$/;
@@ -779,7 +811,8 @@ function SqliteApi(cfg) {
     receipt: function (text, city) { return receipt(text, city || null); },
     // השאלון מחושב בבניית קובץ הענן. קובץ ישן בלי המפתח מחזיר null,
     // והמסך מציג הודעה במקום להישבר.
-    quiz: async function () { return pre.quiz || null; }
+    quiz: async function () { return pre.quiz || null; },
+    watch: watchInfo
   };
 }
 

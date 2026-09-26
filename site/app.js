@@ -33,6 +33,10 @@ var S = {
   quiz: null,             // {day, questions[]} מהשרת או מהקובץ
   quizState: null,        // ההתקדמות של היום, נשמרת בדפדפן
   quizInput: "",
+  near: { mode: "city", city: "", coords: null, label: "", radius: 10, data: null, loading: false, error: null },
+  geo: null,              // קואורדינטות יישובים, נטען פעם אחת
+  watch: [],              // [{barcode,name,tint}] מוצרים במעקב
+  alerts: null,           // תוצאת ההשוואה של המעקב
   marketQuery: "",
   filterOpen: (typeof window !== "undefined" && window.innerWidth > 820),
   mx: 0, my: 0,
@@ -156,6 +160,86 @@ function loadQuizState() {
 function saveQuizState() {
   try { localStorage.setItem(LS_QUIZ, JSON.stringify(S.quizState)); } catch (e) {}
 }
+
+// ------------------------------------------------------------------ watch state
+var LS_WATCH = "mehiron.watch";
+function loadWatch() {
+  try {
+    var v = JSON.parse(localStorage.getItem(LS_WATCH) || "[]");
+    if (Array.isArray(v)) S.watch = v.filter(function (w) { return w && w.barcode; });
+  } catch (e) {}
+}
+function saveWatch() {
+  try { localStorage.setItem(LS_WATCH, JSON.stringify(S.watch)); } catch (e) {}
+}
+function toggleWatch(p) {
+  var was = MehironAlerts.isWatched(S.watch, p.barcode);
+  S.watch = MehironAlerts.toggleWatch(S.watch, p);
+  saveWatch();
+  S.alerts = null;
+  toast(was ? "הוסר מהמעקב" : "נוסף למעקב. השינויים יופיעו ב\"המעקב שלי\".");
+}
+function loadAlerts() {
+  if (!S.watch.length) { S.alerts = { changed: [], unchanged: [], missing: [], latest: null }; return; }
+  API.watch(S.watch.map(function (w) { return w.barcode; })).then(function (d) {
+    var latest = (d.meta && d.meta.latest_date) || (S.meta && S.meta.latest_date) || null;
+    // שם מעודכן מהנתונים, אם המוצר שונה שם מאז שנשמר
+    var list = S.watch.map(function (w) {
+      var n = d.names && d.names[w.barcode];
+      return { barcode: w.barcode, name: (n && n.name) || w.name, tint: w.tint };
+    });
+    S.alerts = MehironAlerts.diffWatch(list, d.series, latest);
+    render();
+  }).catch(function (e) { S.alerts = { error: e.message || String(e) }; render(); });
+}
+
+// ------------------------------------------------------------------ near me
+function loadGeo() {
+  if (S.geo) return Promise.resolve(S.geo);
+  return fetch("cities_geo.json").then(function (r) { return r.json(); }).then(function (g) { S.geo = g; return g; });
+}
+function nearOrigin() {
+  var n = S.near;
+  if (n.mode === "gps" && n.coords) return n.coords;
+  if (n.city && S.geo) return MehironGeo.cityCoord(n.city, S.geo);
+  return null;
+}
+function loadNear() {
+  var n = S.near;
+  if (!S.cart.length) { n.error = "הסל ריק. הוסיפו מוצרים ואז חפשו בסביבה."; n.data = null; render(); return; }
+  n.loading = true; n.error = null; render();
+  loadGeo().then(function () {
+    var origin = nearOrigin();
+    if (!origin) {
+      n.loading = false;
+      n.error = n.mode === "gps" ? "לא התקבל מיקום." : "ליישוב הזה אין קואורדינטות ברשימה. בחרו יישוב סמוך.";
+      render(); return;
+    }
+    return API.basket(S.cart, null, S.includeOld).then(function (d) {
+      if (d.error) { n.error = d.error; n.loading = false; render(); return; }
+      var r = MehironGeo.rankNearby(d.all_stores || [], origin, n.radius, S.geo, 5);
+      r.available = d.available; r.missing = d.missing || []; r.meta = d.meta;
+      n.data = r; n.loading = false; render();
+    });
+  }).catch(function (e) { n.loading = false; n.error = "החישוב נכשל: " + (e.message || e); render(); });
+}
+function useMyLocation() {
+  var n = S.near;
+  if (!navigator.geolocation) { toast("הדפדפן לא תומך במיקום. בחרו יישוב."); return; }
+  n.loading = true; n.error = null; render();
+  navigator.geolocation.getCurrentPosition(function (pos) {
+    n.coords = [pos.coords.latitude, pos.coords.longitude];
+    n.mode = "gps";
+    loadGeo().then(function (g) {
+      var near = MehironGeo.nearestCity(n.coords, g, 60);
+      n.label = near ? "ליד " + near.city : "המיקום שלי";
+      loadNear();
+    });
+  }, function () {
+    n.loading = false; n.error = "לא קיבלנו הרשאת מיקום. אפשר לבחור יישוב במקום."; render();
+  }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+}
+
 function loadQuiz() {
   API.quiz().then(function (d) {
     S.quiz = (d && d.questions && d.questions.length) ? d : { missing: true };
@@ -234,7 +318,7 @@ function shareQuiz() {
    באזור חי אומרת לו איפה הוא נמצא עכשיו. */
 function announceScreen() {
   var names = { home: "עמוד הבית", product: "עמוד מוצר", market: "בורסת המחירים",
-                scan: "בדיקת קבלה", cart: "הסל שלי", quiz: "השאלון היומי" };
+                scan: "בדיקת קבלה", cart: "הסל שלי", quiz: "השאלון היומי", alerts: "המעקב שלי" };
   var live = document.getElementById("a11y-live");
   if (!live) return;
   var txt = names[S.screen] || "";
@@ -497,7 +581,8 @@ function screenHome() {
           '<span style="width:44px;height:44px;border-radius:12px;background:var(--ink);color:var(--yellow);display:grid;place-items:center;font-size:22px;flex:none">▦</span>' +
           '<span style="display:flex;flex-direction:column;gap:2px"><span style="font-size:16px;font-weight:900">יש לכם קבלה מהסופר? הדביקו אותה</span><span style="font-size:13px;font-weight:600">נראה לכם כמה הייתם חוסכים על אותו סל בדיוק</span></span>' +
           '<span style="font-size:22px;font-weight:900;margin-inline-start:6px">←</span></button>' : "") +
-        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' + chips + "</div>" +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center">' + chips +
+          (S.watch.length ? '<button class="chip" data-go="alerts">🔔 המעקב שלי (' + S.watch.length + ")</button>" : "") + "</div>" +
       "</div></div>" +
     deal +
     '<section class="wrap" style="display:flex;flex-direction:column;gap:18px">' +
@@ -759,7 +844,12 @@ function screenProduct() {
             "<span>" + esc(p.barcode) + "</span></div></div>" +
         '<div style="display:flex;gap:10px;flex-wrap:wrap;position:relative">' +
           '<div style="position:relative"><button class="btn" style="background:' + (inCart ? "var(--green)" : "var(--ink)") + ";color:" + (inCart ? "var(--ink)" : "#fff") + ';box-shadow:4px 4px 0 #fff" data-add="' + esc(p.barcode) + '">' + (inCart ? "✓ בסל" : "+ הוסף לסל") + "</button>" +
-            (S.burst ? confettiHtml() : "") + "</div></div></div>" +
+            (S.burst ? confettiHtml() : "") + "</div>" +
+          (function () {
+            var on = MehironAlerts.isWatched(S.watch, p.barcode);
+            return '<button class="btn" style="background:' + (on ? "var(--yellow)" : "#fff") + ';box-shadow:4px 4px 0 #fff" data-watch="' + esc(p.barcode) + '" aria-pressed="' + (on ? "true" : "false") + '">' +
+              (on ? "🔔 במעקב" : "🔔 עקבו אחרי המחיר") + "</button>";
+          })() + "</div></div>" +
       kpis +
       (warnings.length ? '<div class="warn">' + warnings.map(esc).join("<br>") + "</div>" : "") +
       '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px">' +
@@ -1305,9 +1395,103 @@ function screenCart() {
         '<div style="display:flex;gap:10px;align-items:center"><select id="citysel" style="border:2px solid var(--ink);border-radius:12px;padding:8px 10px;font-weight:600">' + cityOpts + "</select>" +
         '<span class="pill" style="background:var(--ink);color:#fff">' + cartCount() + " פריטים</span></div></div>" +
       '<div class="card" style="padding:0;overflow:hidden">' + items + "</div>" +
+      nearCard() +
       missing + meter + totals +
     "</section>" +
     '<aside style="flex:1 1 300px;min-width:0;position:sticky;top:12px">' + right + "</aside></div>";
+}
+
+
+/* "הזול בסביבה" - כרטיס בתוך מסך הסל */
+function nearCard() {
+  var n = S.near;
+  var cityOpts = ['<option value="">בחרו יישוב…</option>'].concat(S.cities.filter(function (c) {
+    return c.name !== UNKNOWN;
+  }).map(function (c) {
+    return '<option value="' + esc(c.name) + '"' + (n.mode === "city" && n.city === c.name ? " selected" : "") + ">" + esc(c.name) + "</option>";
+  })).join("");
+  var radii = [5, 10, 20, 40].map(function (r) {
+    return '<option value="' + r + '"' + (n.radius === r ? " selected" : "") + ">עד " + r + ' ק"מ</option>';
+  }).join("");
+  var controls = '<div class="near-controls">' +
+    '<button type="button" class="btn" data-near-gps>📍 המיקום שלי</button>' +
+    '<span class="small muted">או</span>' +
+    '<label class="sr-only" for="nearcity">יישוב</label>' +
+    '<select id="nearcity" class="near-select">' + cityOpts + "</select>" +
+    '<label class="sr-only" for="nearradius">רדיוס</label>' +
+    '<select id="nearradius" class="near-select">' + radii + "</select>" +
+    '<button type="button" class="btn btn-green" data-near-run' + (n.loading ? " disabled" : "") + ">" + (n.loading ? '<span class="spinner"></span> מחשבים…' : "חפשו") + "</button>" +
+    "</div>";
+  var where = n.mode === "gps" && n.coords ? n.label : (n.city || "");
+  var body = "";
+  if (n.error) body = '<div class="warn" style="margin-top:12px">' + esc(n.error) + "</div>";
+  else if (n.data) {
+    var d = n.data;
+    if (!d.list.length) {
+      body = '<div class="note" style="margin-top:12px">אין סניפים בטווח של ' + n.radius + ' ק"מ מ' + esc(where) + " שמוכרים מוצרים מהסל. נסו רדיוס גדול יותר.</div>";
+    } else {
+      body = '<div class="small muted" style="margin:12px 0 6px">' + (d.complete ? "חמשת הסניפים הזולים" : "אין סניף בטווח שמוכר את כל הסל. מוצגים סניפים חלקיים") +
+        ' עד ' + n.radius + ' ק"מ מ' + esc(where) + " · " + d.in_radius + " סניפים בטווח</div>" +
+        '<ol class="near-list">' + d.list.map(function (s, i) {
+          return '<li class="near-row">' +
+            '<span class="near-rank">' + (i + 1) + "</span>" +
+            '<span class="near-main"><span style="font-weight:900">' + esc(s.chain) + "</span> · " + esc(s.branch) + ", " + esc(s.city) +
+              (s.address && s.address !== UNKNOWN ? '<br><span class="small muted">' + esc(s.address) + "</span>" : "") +
+              '<br><span class="small muted">כ־' + s.km + ' ק"מ ממרכז היישוב · מחירים מ־' + s.dates.map(dateHe).join(", ") +
+              (s.complete ? "" : " · " + s.items + " מתוך " + d.available + " המוצרים") + "</span></span>" +
+            '<span class="near-total tnum">' + nis(s.total) + " ₪</span></li>";
+        }).join("") + "</ol>" +
+        '<div class="note" style="margin-top:10px">המרחק נמדד למרכז היישוב של הסניף ולא לכתובתו, כי הרשתות אינן מפרסמות קואורדינטות.' +
+        (d.unknown ? " " + d.unknown + " סניפים ללא יישוב ידוע לא נכללו." : "") +
+        (d.missing.length ? " " + d.missing.length + " מוצרים מהסל לא נמצאו באף סניף." : "") + "</div>";
+    }
+  }
+  return '<div class="card near-card"><h3 class="h3">📍 הזול בסביבה</h3>' +
+    '<p class="small muted" style="margin:4px 0 10px">איפה הסל הזה הכי זול קרוב אליכם. המיקום נשאר בדפדפן ואינו נשלח לשום מקום.</p>' +
+    controls + body + "</div>";
+}
+
+// ------------------------------------------------------------------ alerts
+function screenAlerts() {
+  var head = '<div class="wrap" id="main">' +
+    '<div class="pill" style="background:var(--yellow);border:3px solid var(--ink);width:fit-content;transform:rotate(-2deg);font-weight:900">🔔 המעקב שלי</div>' +
+    '<h1 style="font-size:34px;font-weight:900;line-height:1.1;margin-top:10px">מה השתנה במחירים שלי?</h1>';
+  if (!S.watch.length) {
+    return head + '<div class="card" style="margin-top:16px">עדיין אין מוצרים במעקב. פתחו עמוד מוצר ולחצו "עקבו אחרי המחיר", ' +
+      'ובכל ביקור תראו כאן מה השתנה מאז העדכון היומי האחרון. <a data-go="home">לחיפוש מוצרים</a></div></div>';
+  }
+  if (!S.alerts) return head + '<div class="loading"><span class="spinner"></span> משווים לעדכון האחרון…</div></div>';
+  if (S.alerts.error) return head + '<div class="warn" style="margin-top:16px">' + esc(S.alerts.error) + "</div></div>";
+  var a = S.alerts;
+  var latest = a.latest ? dateHe(a.latest) : "לא ידוע";
+  function rowBtns(x) {
+    return '<span class="alert-btns"><button type="button" class="btn" style="padding:6px 10px;font-size:13px" data-open="' + esc(x.barcode) + '">לעמוד המוצר</button>' +
+      '<button type="button" class="btn" style="padding:6px 10px;font-size:13px" data-unwatch="' + esc(x.barcode) + '">הסירו</button></span>';
+  }
+  var changed = a.changed.length ?
+    '<div class="card" style="margin-top:16px"><h3 class="h3">השתנו בעדכון של ' + latest + " (" + a.changed.length + ")</h3>" +
+    '<div style="overflow-x:auto"><table style="margin-top:10px"><thead><tr><th scope="col">מוצר</th><th scope="col">מחיר קודם</th><th scope="col">מחיר חדש</th><th scope="col">שינוי</th><th scope="col"></th></tr></thead><tbody>' +
+    a.changed.map(function (c) {
+      var col = c.pct < 0 ? "var(--green-text)" : "var(--red)";
+      return "<tr><td>" + esc(prettyName(c.name)) + '<br><span class="small muted">חציון ארצי מ־' + num(c.stores) + " סניפים</span></td>" +
+        '<td class="tnum">' + nis(c.old) + ' ₪<br><span class="small muted">' + dateHe(c.prev_date) + "</span></td>" +
+        '<td class="tnum" style="font-weight:900">' + nis(c.now) + ' ₪<br><span class="small muted">' + dateHe(c.date) + "</span></td>" +
+        '<td class="tnum" style="font-weight:900;color:' + col + '">' + (c.pct > 0 ? "▲ +" : "▼ ") + c.pct + "%</td>" +
+        "<td>" + rowBtns(c) + "</td></tr>";
+    }).join("") + "</tbody></table></div></div>" :
+    '<div class="card" style="margin-top:16px"><h3 class="h3">אין שינוי בעדכון של ' + latest + "</h3><p class=\"small muted\" style=\"margin-top:6px\">אף מוצר במעקב לא שינה את החציון הארצי שלו בעדכון האחרון.</p></div>";
+  var unchanged = a.unchanged.length ?
+    '<div class="card" style="margin-top:16px"><h3 class="h3">ללא שינוי (' + a.unchanged.length + ")</h3>" +
+    '<div style="overflow-x:auto"><table style="margin-top:10px"><thead><tr><th scope="col">מוצר</th><th scope="col">חציון ארצי</th><th scope="col">ללא שינוי מאז</th><th scope="col"></th></tr></thead><tbody>' +
+    a.unchanged.map(function (u) {
+      return "<tr><td>" + esc(prettyName(u.name)) + "</td><td class=\"tnum\">" + nis(u.price) + " ₪</td><td>" +
+        (u.first ? "נתון ראשון ב־" + dateHe(u.since) : dateHe(u.since)) + "</td><td>" + rowBtns(u) + "</td></tr>";
+    }).join("") + "</tbody></table></div></div>" : "";
+  var missing = a.missing.length ?
+    '<div class="warn" style="margin-top:16px">' + a.missing.map(function (m) { return esc(prettyName(m.name)) + ": " + esc(m.reason); }).join("<br>") + "</div>" : "";
+  return head +
+    '<p class="small muted" style="margin:6px 0 0">ההשוואה היא של החציון הארצי מול הנקודה הקודמת שלו. הרשימה נשמרת בדפדפן הזה בלבד.</p>' +
+    changed + unchanged + missing + "</div>";
 }
 
 function receiptCard(b, d) {
@@ -1380,6 +1564,7 @@ function render() {
   else if (S.screen === "market") body = screenMarket();
   else if (S.screen === "scan") body = screenScan();
   else if (S.screen === "quiz") body = screenQuiz();
+  else if (S.screen === "alerts") body = screenAlerts();
   else body = screenCart();
 
   var toastHtml = S.toast ? '<div role="status" style="position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:12px 20px;border-radius:14px;font-weight:800;z-index:99;box-shadow:5px 5px 0 var(--green)">' + esc(S.toast) + "</div>" : "";
@@ -1408,6 +1593,7 @@ function go(screen, opts) {
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
   if (screen === "quiz" && !S.quiz) loadQuiz();
+  if (screen === "alerts" && !S.alerts) loadAlerts();
   setHash(hashFor(screen), opts.replace);
   render();
 }
@@ -1432,7 +1618,7 @@ function applyHash(initial) {
     render(); loadProduct();
     return;
   }
-  var screen = ["home", "market", "scan", "cart", "quiz"].indexOf(h) >= 0 ? h : "home";
+  var screen = ["home", "market", "scan", "cart", "quiz", "alerts"].indexOf(h) >= 0 ? h : "home";
   if (screen === "scan" && !SCAN_ENABLED) screen = "home";
   if (!initial && screen === S.screen) { render(); return; }
   S.screen = screen;
@@ -1440,6 +1626,7 @@ function applyHash(initial) {
   if (screen === "market" && !S.market) loadMarket();
   if (screen === "cart") loadCart2();
   if (screen === "quiz" && !S.quiz) loadQuiz();
+  if (screen === "alerts" && !S.alerts) loadAlerts();
   render();
 }
 
@@ -1598,12 +1785,26 @@ document.addEventListener("keydown", function (ev) {
 });
 
 document.addEventListener("click", function (ev) {
-  var t = ev.target.closest("[data-quiz-answer],[data-quiz-submit],[data-quiz-next],[data-quiz-share],[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
+  var t = ev.target.closest("[data-watch],[data-unwatch],[data-near-gps],[data-near-run],[data-quiz-answer],[data-quiz-submit],[data-quiz-next],[data-quiz-share],[data-tape-toggle],[data-go],[data-open],[data-add],[data-mkt],[data-range],[data-chain],[data-allchains],[data-qty],[data-remove],[data-search],[data-scan-run],[data-scan-sample],[data-scan-reset],[data-scan-tocart],[data-toggle-old],[data-clear-filters],[data-filter-toggle]");
   if (!t) {
     if (S.focused && !ev.target.closest(".searchbox") && !ev.target.closest(".suggest")) { S.focused = false; paintSuggest(); }
     return;
   }
   if (t.hasAttribute("data-tape-toggle")) { S.tapePaused = !S.tapePaused; render(); return; }
+  if (t.hasAttribute("data-watch")) {
+    var pw = S.product && S.product.product;
+    if (pw) { toggleWatch({ barcode: pw.barcode, name: pw.name, tint: pw.tint }); render(); }
+    return;
+  }
+  if (t.hasAttribute("data-unwatch")) {
+    S.watch = S.watch.filter(function (w) { return w.barcode !== t.getAttribute("data-unwatch"); });
+    saveWatch(); S.alerts = null; render(); loadAlerts(); return;
+  }
+  if (t.hasAttribute("data-near-gps")) { useMyLocation(); return; }
+  if (t.hasAttribute("data-near-run")) {
+    if (S.near.mode === "city" && !S.near.city) { toast("בחרו יישוב או לחצו על \"המיקום שלי\""); return; }
+    loadNear(); return;
+  }
   if (t.hasAttribute("data-quiz-answer")) {
     var g = t.getAttribute("data-quiz-answer");
     answerQuiz(g === "up" || g === "down" ? g : parseFloat(g));
@@ -1692,6 +1893,14 @@ document.addEventListener("change", function (ev) {
     if (S.screen === "product") { S.product = null; render(); loadProduct(); }
     else { render(); loadCart2(); }
   }
+  if (ev.target.id === "nearcity") {
+    S.near.city = ev.target.value; S.near.mode = "city"; S.near.coords = null; S.near.data = null; S.near.error = null;
+    if (S.near.city) loadNear(); else render();
+  }
+  if (ev.target.id === "nearradius") {
+    S.near.radius = parseInt(ev.target.value, 10) || 10;
+    if (nearOrigin() || (S.near.mode === "gps" && S.near.coords)) loadNear(); else render();
+  }
   if (ev.target.id === "scancity") {
     S.city = ev.target.value;
     try { localStorage.setItem(LS_CITY, S.city); } catch (e) {}
@@ -1745,6 +1954,7 @@ function boot(msg) {
 
 loadCart();
 loadQuizState();
+loadWatch();
 API = window.MehironData();
 boot("מתחיל…");
 API.init(boot)
