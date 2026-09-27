@@ -17,6 +17,8 @@
   Cache-Control: public, max-age=0, must-revalidate
 /styles.css
   Cache-Control: public, max-age=0, must-revalidate
+/hero3d.css
+  Cache-Control: public, max-age=0, must-revalidate
 /geo.js
   Cache-Control: public, max-age=0, must-revalidate
 /alerts.js

@@ -494,6 +494,27 @@ function paintSuggest() {
   document.documentElement.classList.toggle("suggest-open", !!S.focused);
 }
 
+
+/* המוצרים המרחפים בכותרת. צורות מופשטות בצבעי האתר, לא מוצרים אמיתיים:
+   בקבצי הרשתות אין תמונות. העיצוב ב-hero3d.css. */
+function heroScene() {
+  function box(cls) {
+    return '<div class="obj box ' + cls + '" aria-hidden="true"><div class="spin">' +
+      '<div class="face f"></div><div class="face b"></div><div class="face l"></div>' +
+      '<div class="face r"></div><div class="face t"></div><div class="face u"></div></div></div>';
+  }
+  function cyl(cls, n) {
+    var sides = "";
+    for (var i = 0; i < n; i++) sides += '<div class="face side" style="--a:' + (i * 360 / n) + 'deg"></div>';
+    return '<div class="obj cyl ' + cls + '" aria-hidden="true"><div class="spin">' + sides +
+      '<div class="face cap t"></div><div class="face cap u"></div></div></div>';
+  }
+  var can = '<div class="obj can" aria-hidden="true"><div class="spin"><div class="top"></div>' +
+    '<div class="body"><div class="label"></div></div></div></div>';
+  return '<div class="scene">' + box("milk") + can + box("bag") + cyl("coin", 16) +
+    '<div class="obj egg" aria-hidden="true"><div class="spin"><div class="face"></div></div></div></div>';
+}
+
 function screenHome() {
   var h = S.home;
   if (!h) return '<div class="loading"><span class="spinner"></span> טוען…</div>';
@@ -572,10 +593,7 @@ function screenHome() {
       '<div class="hero-layer" style="inset:-40px;transform:translate(' + px1 + "," + py1 + ')">' +
         '<div style="position:absolute;width:340px;height:340px;background:var(--green);left:-80px;top:-100px;animation:blob 9s ease-in-out infinite"></div>' +
         '<div style="position:absolute;width:240px;height:240px;background:var(--red);right:-40px;bottom:-80px;animation:blob 7s ease-in-out infinite reverse"></div></div>' +
-      '<div class="hero-layer" style="inset:0;transform:translate(' + px2 + "," + py2 + ')">' +
-        '<div style="position:absolute;width:120px;height:120px;border-radius:30px;background:var(--yellow);right:12%;top:20px;animation:spin 24s linear infinite"></div>' +
-        '<div style="position:absolute;width:70px;height:70px;border-radius:50%;background:var(--purple);left:14%;bottom:60px;animation:float 5s ease-in-out infinite"></div>' +
-        '<div style="position:absolute;width:44px;height:44px;background:#fff;left:8%;top:30%;clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%);animation:spin 12s linear infinite"></div></div>' +
+      '<div class="hero-layer" style="inset:0;opacity:1;transform:translate(' + px2 + "," + py2 + ')">' + heroScene() + "</div>" +
       '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none" aria-hidden="true">₪</div>' +
       '<div class="hero-inner">' +
         '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים פרסמו מחירים ב־" + dateHe(m.latest_date) + "</div>" +

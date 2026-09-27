@@ -1,0 +1,103 @@
+/* מוצרים מרחפים בכותרת: קרטון חלב, פחית, שקית קניות, מטבע ₪ וביצה.
+   CSS בלבד, בלי ספריה: כל גוף בנוי מפאות עם transform-style: preserve-3d,
+   ומסתובב לאט. אין תמונות מוצר בקבצי הרשתות, ולכן אלה צורות מופשטות
+   בצבעי האתר, לא מוצרים אמיתיים.
+
+   תנועה: prefers-reduced-motion ותפריט הנגישות עוצרים את כל האנימציות
+   (הכללים ב-styles.css), והגופים נשארים בפוזה סטטית. */
+
+.scene{position:absolute;inset:0;perspective:1100px;perspective-origin:50% 40%;pointer-events:none;z-index:2}
+.obj{position:absolute;transform-style:preserve-3d;will-change:transform;
+  animation:obj-float var(--dur,7s) ease-in-out infinite var(--delay,0s)}
+.obj>.spin{position:relative;width:100%;height:100%;transform-style:preserve-3d;
+  animation:obj-spin var(--spin,22s) linear infinite var(--delay,0s)}
+.face{position:absolute;inset:0;backface-visibility:hidden;border:3px solid var(--ink);box-sizing:border-box}
+/* צל רך מתחת לכל גוף, נושם הפוך לריחוף */
+.obj::after{content:"";position:absolute;left:10%;right:10%;bottom:-38px;height:18px;border-radius:50%;
+  background:radial-gradient(closest-side,rgba(0,0,0,.55),transparent);
+  animation:obj-shadow var(--dur,7s) ease-in-out infinite var(--delay,0s)}
+@keyframes obj-float{0%,100%{transform:translate3d(0,0,0) rotate(var(--tilt,0deg))}50%{transform:translate3d(0,-18px,0) rotate(calc(var(--tilt,0deg) + 2deg))}}
+@keyframes obj-shadow{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(.8);opacity:.4}}
+@keyframes obj-spin{from{transform:rotateY(0) rotateX(var(--lean,-8deg))}to{transform:rotateY(360deg) rotateX(var(--lean,-8deg))}}
+
+/* ---- קופסה (קרטון חלב, שקית): שש פאות סביב מרכז ---- */
+.box{width:var(--w);height:var(--h)}
+.box .f{transform:translateZ(calc(var(--d) / 2))}
+.box .b{transform:rotateY(180deg) translateZ(calc(var(--d) / 2))}
+.box .l{width:var(--d);left:calc(50% - var(--d) / 2);transform:rotateY(-90deg) translateZ(calc(var(--w) / 2))}
+.box .r{width:var(--d);left:calc(50% - var(--d) / 2);transform:rotateY(90deg) translateZ(calc(var(--w) / 2))}
+.box .t{height:var(--d);top:calc(50% - var(--d) / 2);transform:rotateX(90deg) translateZ(calc(var(--h) / 2))}
+.box .u{height:var(--d);top:calc(50% - var(--d) / 2);transform:rotateX(-90deg) translateZ(calc(var(--h) / 2))}
+/* תאורה: פאה קדמית בהירה, צדדים כהים יותר, גב הכי כהה */
+.box .f{background:linear-gradient(160deg,var(--c1),var(--c2))}
+.box .b{background:var(--c3)}
+.box .l,.box .r{background:linear-gradient(180deg,var(--c2),var(--c3))}
+.box .t{background:var(--c1)}
+.box .u{background:var(--c3)}
+
+/* קרטון חלב: לבן עם פס ירוק וכיתוב */
+.milk{--w:84px;--h:128px;--d:58px;--c1:#ffffff;--c2:#e9ece6;--c3:#c9cdc6}
+.milk .f::before,.milk .b::before{content:"";position:absolute;left:0;right:0;top:34%;height:22%;background:var(--green);border-top:3px solid var(--ink);border-bottom:3px solid var(--ink)}
+.milk .f::after{content:"3%";position:absolute;left:0;right:0;top:64%;text-align:center;font-weight:900;font-size:22px;color:var(--ink);font-family:'Heebo',system-ui,sans-serif}
+.milk .t{background:linear-gradient(90deg,#fff 0 48%,#dfe3dd 48% 52%,#fff 52%)}
+
+/* שקית קניות: צהובה, שטוחה, עם ידית */
+.bag{--w:110px;--h:120px;--d:34px;--c1:#ffd75f;--c2:var(--yellow);--c3:#d9a622}
+.bag .f::before,.bag .b::before{content:"";position:absolute;left:30%;right:30%;top:-30px;height:44px;border:3px solid var(--ink);border-bottom:0;border-radius:40px 40px 0 0}
+.bag .f::after{content:"₪";position:absolute;inset:0;display:grid;place-items:center;font-size:52px;font-weight:900;color:var(--ink);font-family:'Heebo',system-ui,sans-serif}
+
+/* ---- פחית: גליל "מזויף" - גוף עם הצללה אופקית, תווית שנעה כאילו הפחית
+   מסתובבת, ומכסה אליפטי. חלק יותר מגליל בנוי מפאות, שנראה מפוספס. ---- */
+.can{width:78px;height:120px}
+.can .spin{animation:none;transform:rotateX(-6deg)}
+.can .body{position:absolute;inset:0;border-radius:39px/9px;border:3px solid var(--ink);overflow:hidden;
+  background:linear-gradient(90deg,#7a1c1c 0%,var(--red) 22%,#ff9a9a 44%,var(--red) 66%,#7a1c1c 100%)}
+.can .label{position:absolute;left:0;right:0;top:36%;height:26%;border-top:3px solid var(--ink);border-bottom:3px solid var(--ink);
+  background:linear-gradient(90deg,#fff 0 30%,var(--ink) 30% 42%,#fff 42% 100%);background-size:200% 100%;
+  animation:can-label var(--spin,9s) linear infinite var(--delay,0s)}
+/* הצללה מעל התווית, כדי שגם היא תיראה עגולה */
+.can .body::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.45),transparent 25%,rgba(255,255,255,.25) 44%,transparent 62%,rgba(0,0,0,.45));pointer-events:none}
+.can .top{position:absolute;left:0;right:0;top:-9px;height:20px;border-radius:50%;border:3px solid var(--ink);background:#e9e9ec;z-index:2}
+.can .top::after{content:"";position:absolute;left:30%;top:6px;width:22px;height:5px;border-radius:3px;background:var(--ink)}
+@keyframes can-label{from{background-position:0 0}to{background-position:-200% 0}}
+
+/* ---- מטבע: גליל קצר וירוק, שוכב על הצד. 16 פאות דקות בלי גבולות ---- */
+.cyl{width:var(--w);height:var(--h)}
+.cyl .side{width:calc(var(--w) * .2);left:calc(50% - var(--w) * .1);border:0;
+  background:var(--sc);transform:rotateY(var(--a)) translateZ(calc(var(--w) / 2))}
+.cyl .cap{width:var(--w);height:var(--w);border-radius:50%;left:0;top:calc(50% - var(--w) / 2);background:var(--capc)}
+.cyl .cap.t{transform:rotateX(90deg) translateZ(calc(var(--h) / 2))}
+.cyl .cap.u{transform:rotateX(-90deg) translateZ(calc(var(--h) / 2))}
+.coin{--w:96px;--h:14px;--capc:var(--green);--lean:72deg}
+.coin .side{--sc:#128a41}
+.coin .cap{background:radial-gradient(circle at 40% 35%,#4fd882,var(--green) 55%,#15964a)}
+.coin .cap::after{content:"₪";position:absolute;inset:0;display:grid;place-items:center;font-size:58px;font-weight:900;color:var(--ink);font-family:'Heebo',system-ui,sans-serif}
+.coin .cap.u::after{transform:scaleX(-1)}
+
+/* ---- ביצה: כדור מזויף, הצללה רדיאלית ---- */
+.egg{width:64px;height:82px}
+.egg .face{border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:radial-gradient(circle at 35% 30%,#fff 0,#e8dccb 45%,#a98f6f 100%)}
+
+/* מיקום: משני צידי הכותרת, מחוץ לטקסט */
+.obj.milk{left:6%;top:14%;--dur:7.5s;--spin:26s;--tilt:-4deg}
+.obj.can{right:8%;top:12%;--dur:6.5s;--spin:9s;--delay:-2s;--tilt:6deg}
+.obj.bag{left:5%;top:56%;--dur:8s;--spin:30s;--delay:-4s;--tilt:5deg}
+.obj.coin{right:6%;top:58%;--dur:5.5s;--spin:14s;--delay:-1s}
+.obj.egg{left:44%;top:4%;--dur:9s;--spin:40s;--delay:-3s;--lean:-20deg}
+.obj.egg::after{bottom:-24px}
+
+/* טלפון: פחות גופים, קטנים יותר, בפינות, בלי לכסות את הכותרת */
+@media (max-width:820px){
+  .scene{perspective:700px}
+  .obj{transform:scale(.62)}
+  .obj.milk{left:1%;top:16%}
+  .obj.can{right:1%;top:4%}
+  .obj.bag,.obj.egg{display:none}
+  .obj.coin{right:3%;bottom:4%}
+  @keyframes obj-float{0%,100%{transform:scale(.62) translate3d(0,0,0) rotate(var(--tilt,0deg))}50%{transform:scale(.62) translate3d(0,-12px,0) rotate(calc(var(--tilt,0deg) + 2deg))}}
+}
+
+/* כרטיסי מוצר: עומק קל במעבר עכבר, בלי לשנות את הצל השטוח של האתר */
+@media (hover:hover){
+  .pcard:hover{transform:perspective(900px) rotateX(3deg) rotateY(-4deg) translate(-4px,-6px)}
+}
