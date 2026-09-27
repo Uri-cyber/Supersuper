@@ -31,3 +31,10 @@
   Cache-Control: public, max-age=0, must-revalidate
 /p/page.css
   Cache-Control: public, max-age=0, must-revalidate
+
+# ספריות וגופנים לא משתנים בין פרסומים. יום אחד במטמון חוסך את אימות
+# ה-ETag על קובץ ה-wasm הגדול בכל טעינה.
+/vendor/*
+  Cache-Control: public, max-age=86400, must-revalidate
+/fonts/*
+  Cache-Control: public, max-age=86400, must-revalidate
