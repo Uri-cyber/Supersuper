@@ -30,9 +30,8 @@
 @keyframes hero-sway{0%,100%{transform:rotateY(-16deg) rotateX(5deg)}50%{transform:rotateY(16deg) rotateX(-4deg)}}
 @keyframes hero-shade{0%,100%{transform:scale(1);opacity:.8}50%{transform:scale(.72);opacity:.4}}
 
-/* עומק: רחוק = קטן, מטושטש מעט ועמום; קרוב = חד ובוהק */
-.obj.far img{filter:blur(1.2px) drop-shadow(0 10px 10px rgba(0,0,0,.4));opacity:.78}
-.obj.mid img{filter:drop-shadow(0 12px 14px rgba(0,0,0,.45))}
+/* עומק נקבע רק בגודל ובעוצמת הפרלקסה. בלי טשטוש ובלי שקיפות: טשטוש
+   נראה מלוכלך ולא עמוק, ומערבב שני סגנונות באותו סט. */
 
 /* ניצוצות קטנים שמהבהבים ברקע */
 .spark{position:absolute;width:var(--s, 14px);height:var(--s, 14px);background:var(--c, #ffcb3d);
@@ -40,29 +39,27 @@
   animation:hero-twinkle var(--t, 3.2s) ease-in-out infinite var(--delay, 0s);opacity:.9}
 @keyframes hero-twinkle{0%,100%{transform:scale(.4) rotate(0deg);opacity:.2}50%{transform:scale(1) rotate(45deg);opacity:1}}
 
-/* מיקום במחשב: משני צידי הכותרת, מחוץ לטקסט ולתיבת החיפוש */
-.obj.milk  {--size:132px;--depth:1.3;left:6%;top:15%;--dur:7.2s;--sway:10s;--tilt:-3deg}
-.obj.can   {--size:104px;--depth:1.2;right:7%;top:12%;--dur:6.4s;--sway:8s;--delay:-2s;--tilt:4deg}
-.obj.cheese{--size:132px;--depth:.9;left:4%;top:60%;--dur:8.4s;--sway:11s;--delay:-4s;--tilt:2deg}
-.obj.coins {--size:104px;--depth:.9;right:6%;top:58%;--dur:5.8s;--sway:7s;--delay:-1s;--tilt:-2deg}
-.obj.egg   {--size:54px;--depth:.5;left:21%;top:8%;--dur:9s;--sway:12s;--delay:-3s}
-.obj.bag   {--size:70px;--depth:.5;right:20%;top:6%;--dur:8s;--sway:9s;--delay:-5s;--tilt:3deg}
+/* מיקום במחשב: משני צידי הכותרת, מחוץ לטקסט ולתיבת החיפוש. כל האיורים
+   באותו ריבוע ובאותו קנה מידה, ולכן הגודל כאן הוא העומק בלבד. */
+.obj.milk  {--size:168px;--depth:1.2;left:5%;top:12%;--dur:7.2s;--sway:10s;--tilt:-2deg}
+.obj.can   {--size:168px;--depth:1.2;right:5%;top:10%;--dur:6.6s;--sway:9s;--delay:-2s;--tilt:2deg}
+.obj.cheese{--size:140px;--depth:.8;left:5%;top:58%;--dur:8.2s;--sway:11s;--delay:-4s;--tilt:2deg}
+.obj.coins {--size:140px;--depth:.8;right:5%;top:56%;--dur:6s;--sway:8s;--delay:-1s;--tilt:-2deg}
+.obj.bag   {--size:108px;--depth:.45;right:21%;top:5%;--dur:8.6s;--sway:10s;--delay:-5s;--tilt:2deg}
 
-.spark.s1{left:15%;top:48%;--s:25px;--c:#ffcb3d;--delay:-.4s}
-.spark.s2{right:16%;top:42%;--s:18px;--c:#fff;--delay:-1.6s;--t:2.6s}
-.spark.s3{left:28%;top:26%;--s:16px;--c:#1fb85a;--delay:-2.2s}
-.spark.s4{right:28%;top:22%;--s:22px;--c:#ff8a8a;--delay:-.9s;--t:3.8s}
-.spark.s5{left:10%;top:88%;--s:18px;--c:#fff;--delay:-2.8s}
-.spark.s6{right:12%;top:86%;--s:23px;--c:#ffcb3d;--delay:-1.2s}
+.spark.s1{left:17%;top:46%;--s:18px;--c:#ffcb3d;--delay:-.4s}
+.spark.s2{right:17%;top:44%;--s:14px;--c:#fff;--delay:-1.6s;--t:2.6s}
+.spark.s3{left:26%;top:12%;--s:12px;--c:#fff;--delay:-2.2s}
+.spark.s4{right:30%;top:30%;--s:16px;--c:#ffcb3d;--delay:-.9s;--t:3.8s}
 
 /* טלפון: שני גופים קטנים בפינות העליונות, בלי לכסות טקסט. בטלפון אין
    עכבר, ולכן אין פרלקסה, רק ריחוף. */
 @media (max-width:820px){
   .obj{transform:none}
-  .obj.cheese,.obj.coins,.obj.egg,.obj.bag,.spark.s3,.spark.s4,.spark.s5,.spark.s6{display:none}
+  .obj.cheese,.obj.coins,.obj.bag,.spark.s3,.spark.s4{display:none}
   /* בין תג התאריך לפסקה, משני צידי הכותרת (נמדד ברוחב 390) */
-  .obj.milk{--size:54px;left:3%;top:66px}
-  .obj.can {--size:46px;right:4%;top:72px}
+  .obj.milk{--size:74px;left:1%;top:56px}
+  .obj.can {--size:74px;right:1%;top:56px}
   .spark.s1{left:22%;top:22px;--s:10px}
   .spark.s2{right:6%;top:40px;--s:9px}
 }

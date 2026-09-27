@@ -505,9 +505,9 @@ function heroScene() {
       '<div class="shade"></div></div></div>';
   }
   var sparks = "";
-  for (var i = 1; i <= 6; i++) sparks += '<div class="spark s' + i + '"></div>';
+  for (var i = 1; i <= 4; i++) sparks += '<div class="spark s' + i + '"></div>';
   return '<div class="scene" aria-hidden="true">' + sparks +
-    obj("egg", "far") + obj("bag", "far") + obj("cheese", "mid") + obj("coins", "mid") +
+    obj("bag", "far") + obj("cheese", "mid") + obj("coins", "mid") +
     obj("milk", "near") + obj("can", "near") + "</div>";
 }
 
