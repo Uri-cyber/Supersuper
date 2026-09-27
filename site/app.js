@@ -495,24 +495,20 @@ function paintSuggest() {
 }
 
 
-/* המוצרים המרחפים בכותרת. צורות מופשטות בצבעי האתר, לא מוצרים אמיתיים:
-   בקבצי הרשתות אין תמונות. העיצוב ב-hero3d.css. */
+/* המוצרים המרחפים בכותרת. איורי SVG איזומטריים (site/art) בשלוש שכבות
+   עומק; התנועה והמיקום ב-hero3d.css. צורות מופשטות, לא מוצרים אמיתיים:
+   בקבצי הרשתות אין תמונות. */
 function heroScene() {
-  function box(cls) {
-    return '<div class="obj box ' + cls + '" aria-hidden="true"><div class="spin">' +
-      '<div class="face f"></div><div class="face b"></div><div class="face l"></div>' +
-      '<div class="face r"></div><div class="face t"></div><div class="face u"></div></div></div>';
+  function obj(name, layer) {
+    return '<div class="obj ' + name + " " + layer + '"><div class="bob">' +
+      '<img src="art/' + name + '.svg" alt="" draggable="false" width="120" height="120" decoding="async">' +
+      '<div class="shade"></div></div></div>';
   }
-  function cyl(cls, n) {
-    var sides = "";
-    for (var i = 0; i < n; i++) sides += '<div class="face side" style="--a:' + (i * 360 / n) + 'deg"></div>';
-    return '<div class="obj cyl ' + cls + '" aria-hidden="true"><div class="spin">' + sides +
-      '<div class="face cap t"></div><div class="face cap u"></div></div></div>';
-  }
-  var can = '<div class="obj can" aria-hidden="true"><div class="spin"><div class="top"></div>' +
-    '<div class="body"><div class="label"></div></div></div></div>';
-  return '<div class="scene">' + box("milk") + can + box("bag") + cyl("coin", 16) +
-    '<div class="obj egg" aria-hidden="true"><div class="spin"><div class="face"></div></div></div></div>';
+  var sparks = "";
+  for (var i = 1; i <= 6; i++) sparks += '<div class="spark s' + i + '"></div>';
+  return '<div class="scene" aria-hidden="true">' + sparks +
+    obj("egg", "far") + obj("bag", "far") + obj("cheese", "mid") + obj("coins", "mid") +
+    obj("milk", "near") + obj("can", "near") + "</div>";
 }
 
 function screenHome() {
@@ -589,11 +585,11 @@ function screenHome() {
   }).join("");
 
   return '<div>' +
-    '<div class="hero" id="hero">' +
+    '<div class="hero" id="hero" style="--mx:' + (S.mx || 0).toFixed(3) + ";--my:" + (S.my || 0).toFixed(3) + '">' +
       '<div class="hero-layer" style="inset:-40px;transform:translate(' + px1 + "," + py1 + ')">' +
         '<div style="position:absolute;width:340px;height:340px;background:var(--green);left:-80px;top:-100px;animation:blob 9s ease-in-out infinite"></div>' +
         '<div style="position:absolute;width:240px;height:240px;background:var(--red);right:-40px;bottom:-80px;animation:blob 7s ease-in-out infinite reverse"></div></div>' +
-      '<div class="hero-layer" style="inset:0;opacity:1;transform:translate(' + px2 + "," + py2 + ')">' + heroScene() + "</div>" +
+      heroScene() +
       '<div style="position:absolute;right:6%;bottom:22%;font-size:120px;font-weight:900;color:rgba(255,255,255,.06);line-height:1;transform:rotate(-12deg);pointer-events:none" aria-hidden="true">₪</div>' +
       '<div class="hero-inner">' +
         '<div class="live-badge"><span class="live-dot"></span>' + num(m.stores_today) + " סניפים פרסמו מחירים ב־" + dateHe(m.latest_date) + "</div>" +
@@ -1992,6 +1988,8 @@ document.addEventListener("mousemove", function (ev) {
   if (ev.clientY > r.bottom) return;
   var nx = (ev.clientX / window.innerWidth) - .5, ny = (ev.clientY / r.height) - .5;
   S.mx = nx; S.my = ny;
+  hero.style.setProperty("--mx", nx.toFixed(3));
+  hero.style.setProperty("--my", ny.toFixed(3));
   hero.querySelectorAll(".hero-layer").forEach(function (el, i) {
     el.style.transform = i === 0 ? "translate(" + (nx * -30) + "px," + (ny * -20) + "px)" : "translate(" + (nx * 40) + "px," + (ny * 30) + "px)";
   });
