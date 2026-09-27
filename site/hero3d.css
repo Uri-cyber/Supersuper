@@ -90,7 +90,7 @@
 @media (max-width:820px){
   .scene{perspective:700px}
   .obj{transform:scale(.62)}
-  .obj.milk{left:1%;top:16%}
+  .obj.milk{left:0;top:3%}
   .obj.can{right:1%;top:4%}
   .obj.bag,.obj.egg{display:none}
   .obj.coin{right:3%;bottom:4%}
